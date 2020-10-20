@@ -5,6 +5,8 @@ import torch.nn.functional as F
 
 Pool = nn.MaxPool2d
 
+#Test
+
 def softmax(logit_map):
     eps = 1e-12
     exp = torch.exp(logit_map - torch.max(logit_map.view(logit_map.size(0), logit_map.size(1), -1), dim=2)[0].unsqueeze(-1).unsqueeze(-1))
