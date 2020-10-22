@@ -166,6 +166,8 @@ def total_loss(input, reconstr, sig_shape, sig_app, coord, vector, device, L_mu=
     return total_loss
 
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 

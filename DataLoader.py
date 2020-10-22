@@ -16,8 +16,8 @@ class ImageDataset(Dataset):
         self.transforms_shape = transforms.Compose([transforms.ToTensor(),
                                                     transforms.Normalize([0.5], [0.5])
                                                     ])
-        self.transforms_appearance = transforms.Compose([transforms.ToPILImage(),
-                                                         transforms.ColorJitter(0.3, 0.3, 0.3, 0.3),
+        self.transforms_appearance = transforms.Compose([#transforms.ToPILImage(),
+                                                         #transforms.ColorJitter(0.3, 0.3, 0.3, 0.3),
                                                          transforms.ToTensor(),
                                                          transforms.Normalize([0.5], [0.5])
                                                          ])
