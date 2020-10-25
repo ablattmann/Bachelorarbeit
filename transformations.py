@@ -73,8 +73,8 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
     num_batch, channels, height, width = U.shape
     out_height = out_size
     out_width = out_size
-    height_f = torch.tensor([height], dtype=torch.float32)
-    width_f = torch.tensor([width], dtype=torch.float32)
+    height_f = torch.tensor([height], dtype=torch.float32).to(device)
+    width_f = torch.tensor([width], dtype=torch.float32).to(device)
     num_point = coord.shape[1]
 
     def _repeat(x, n_repeats):
@@ -108,7 +108,7 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
         x0 = torch.clamp(x0, zero, max_x)
         x1 = torch.clamp(x1, zero, max_x)
 
-        base = _repeat(torch.arange(num_batch) * width * height, out_height * out_width).to(device)
+        base = _repeat(torch.arange(num_batch).to(device) * width * height, out_height * out_width).to(device)
         base_y0 = base + y0 * width
         base_y1 = base + y1 * width
         idx_a = (base_y0 + x0).to(dtype=torch.int64)
@@ -139,8 +139,8 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
 
     def _meshgrid(height, width, coord):
 
-        x_t = torch.reshape(torch.linspace(- 1., 1., width), [1, width]).repeat(height, 1)
-        y_t = torch.reshape(torch.linspace(- 1., 1., height), [height, 1]).repeat(1, width)
+        x_t = torch.reshape(torch.linspace(- 1., 1., width), [1, width]).repeat(height, 1).to(device)
+        y_t = torch.reshape(torch.linspace(- 1., 1., height), [height, 1]).repeat(1, width).to(device)
 
         x_t_flat = torch.reshape(x_t, (1, 1, -1))
         y_t_flat = torch.reshape(y_t, (1, 1, -1))
@@ -182,7 +182,7 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
         return y, x
 
     def _solve_system(coord, vector):
-        ones = torch.ones((num_batch, num_point, 1), dtype=torch.float32)
+        ones = torch.ones((num_batch, num_point, 1), dtype=torch.float32).to(device)
         p = torch.cat((ones, coord), 2)  # [bn, pn, 3]
 
         p_1 = torch.reshape(p, [num_batch, -1, 1, 3])  # [bn, pn, 1, 3]
@@ -190,7 +190,7 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
         d2 = torch.sum(torch.square(p_1 - p_2), 3)  # [bn, pn, pn]
         r = d2 * torch.log(d2 + 1e-6)  # Kernel [bn, pn, pn]
 
-        zeros = torch.zeros((num_batch, 3, 3), dtype=torch.float32)
+        zeros = torch.zeros((num_batch, 3, 3), dtype=torch.float32).to(device)
         W_0 = torch.cat((p, r), 2)  # [bn, pn, 3+pn]
         W_1 = torch.cat((zeros, p.permute(0, 2, 1)), 2)  # [bn, 3, pn+3]
         W = torch.cat((W_0, W_1), 1)  # [bn, pn+3, pn+3]

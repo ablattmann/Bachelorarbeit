@@ -45,7 +45,7 @@ def get_mu_and_prec(part_maps, device, scal=0.8):
 
 
 def precision_dist_op(precision, dist, part_depth, nk, h, w):
-    proj_precision = torch.einsum('bnik,bnkf->bnif', precision, dist) ** 2  # tf.matmul(precision, dist)**2
+    proj_precision = torch.einsum('bnik, bnkf -> bnif', precision, dist) ** 2  # tf.matmul(precision, dist)**2
     proj_precision = torch.sum(proj_precision, -2)  # sum x and y axis
 
     heat = 1 / (1 + proj_precision)

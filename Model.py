@@ -10,7 +10,7 @@ import numpy as np
 class Model(nn.Module):
     def __init__(self, parts=16, n_features=32):
         super(Model, self).__init__()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.E_sigma = E(3, parts, residual_dim=64, sigma=True)
         self.E_alpha = E(1, n_features, residual_dim=64, sigma=False)
         self.decoder = Decoder(parts, n_features)
@@ -33,11 +33,11 @@ class Model(nn.Module):
 
 
 def train():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = Model().to(device)
     model.train()
-    optimizer = torch.optim.Adagrad(model.parameters(), lr=1e-2)
-    image = np.expand_dims(plt.imread('Test.png'), 0).repeat(1, axis=0)
+    optimizer = torch.optim.Adagrad(model.parameters(), lr=1e-3)
+    image = np.expand_dims(plt.imread('Test.png')[:, :, :3], 0).repeat(1, axis=0)
     train_set = ImageDataset(image, device=device)
     train_loader = DataLoader(train_set, batch_size=8)
     for batch_id, (original, spat, app, coord, vec) in enumerate(train_loader):

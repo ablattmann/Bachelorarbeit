@@ -34,11 +34,14 @@ class ImageDataset(Dataset):
         coord, vector = make_input_tps_param(tps_param_dic)
 
         # Make transformations
-        x_spatial_transform = self.transforms_shape(image).unsqueeze(0)
+        x_spatial_transform = self.transforms_shape(image).unsqueeze(0).to(self.device)
+        coord, vector = coord.to(self.device), vector.to(self.device)
         x_spatial_transform, t_mesh = ThinPlateSpline(x_spatial_transform, coord, vector, 128, device=self.device)
-        x_spatial_transform = x_spatial_transform.squeeze(0)
+        x_spatial_transform = x_spatial_transform.squeeze(0).to(self.device)
         x_appearance_transform = self.transforms_appearance(image)
         original = self.transforms_image(image)
         coord, vector = coord.squeeze(0), vector.squeeze(0)
 
         return original, x_spatial_transform, x_appearance_transform, coord, vector
+
+
