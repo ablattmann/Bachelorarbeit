@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-#import kornia.augmentation as K
+
 
 Pool = nn.MaxPool2d
 
-#Test
 
 def softmax(logit_map):
     eps = 1e-12
@@ -71,20 +70,19 @@ class Residual(nn.Module):
 
 
 class Hourglass(nn.Module):
-    def __init__(self, n, f, bn=None, increase=0):
+    def __init__(self, n, f):
         super(Hourglass, self).__init__()
-        nf = f + increase
         self.up1 = Residual(f, f)
         # Lower branch
         self.pool1 = Pool(2, 2)
-        self.low1 = Residual(f, nf)
+        self.low1 = Residual(f, f)
         self.n = n
         # Recursive hourglass
-        if self.n > 1:
-            self.low2 = Hourglass(n - 1, nf, bn=bn)
+        if self.n > 0:
+            self.low2 = Hourglass(n - 1, f)
         else:
-            self.low2 = Residual(nf, nf)
-        self.low3 = Residual(nf, f)
+            self.low2 = Residual(f, f)
+        self.low3 = Residual(f, f)
         self.up2 = nn.Upsample(scale_factor=2, mode='nearest')
 
     def forward(self, x):
@@ -104,7 +102,7 @@ class E(nn.Module):
         self.hg = Hourglass(depth, residual_dim)  # depth 4 has bottleneck of 4x4
         self.dropout = nn.Dropout()
         self.out = Conv(residual_dim, residual_dim, kernel_size=1, stride=1, bn=True, relu=True)
-        self.feature = Conv(residual_dim, n_feature, kernel_size=1, stride=1)
+        self.feature = Conv(residual_dim, n_feature, kernel_size=1, stride=1, bn=False, relu=False)
         if self.sigma:
             self.preprocess_1 = Conv(3, 64, kernel_size=6, stride=2, bn=True, relu=True)  # transform to 64 x 64 for sigma
             self.preprocess_2 = Residual(64, residual_dim)
@@ -154,14 +152,14 @@ class Nccuc(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, nk, nf, reconstr_dim=128, n_c=3):
         super(Decoder, self).__init__()
-        self.reconst_dim = reconstr_dim
+        self.reconstr_dim = reconstr_dim
         self.out_channels = n_c
         self.conv1 = Nccuc(nf + 2, [512, 512])  # 8
         self.conv2 = Nccuc(nf + 4 + 512, [512, 256])  # 16
         self.conv3 = Nccuc(nf + nk + 256, [256, 256])  # 32
         self.conv4 = Nccuc(nk + 256, [256, 128])  # 64
         self.conv5 = Nccuc(nk + 128, [128, 64])   # 128
-        self.conv6 = Conv(nk + 64, self.out_channels, kernel_size=5, stride=1, bn=True)
+        self.conv6 = Conv(nk + 64, self.out_channels, kernel_size=5, stride=1, relu=False)
 
     def forward(self, encoding_list):
         conv1 = self.conv1(encoding_list[-1], encoding_list[-2])
@@ -169,5 +167,6 @@ class Decoder(nn.Module):
         conv3 = self.conv3(conv2, encoding_list[-4])
         conv4 = self.conv4(conv3, encoding_list[-5])
         conv5 = self.conv5(conv4, encoding_list[-6])
-        out = self.conv6(conv5)
+        conv6 = self.conv6(conv5)
+        out = torch.sigmoid(conv6)
         return out

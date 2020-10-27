@@ -326,6 +326,7 @@ stddev_t = tf.einsum('aijk,aijmn->akmn', integrant, transform_mesh_out_prod) - m
 # PyTorch
 image = plt.imread('Test.png')
 image = torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0)
-mu, L_inv = get_mu_and_prec(image, device='cpu')
+mu, L_inv = get_mu_and_prec(image, device='cpu', scal=1)
 mu = mu / torch.sum(mu, (1, 2))
+print(mu.shape)
 

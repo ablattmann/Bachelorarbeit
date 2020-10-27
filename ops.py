@@ -8,7 +8,25 @@ def get_local_part_appearances(f, sig):
     return alpha
 
 
-def get_mu_and_prec(part_maps, device, scal=0.8):
+def get_covariance(tensor):
+    bn, nk, w, h = tensor.shape
+    tensor_reshape = tensor.reshape(bn, nk, 2, -1)
+    x = tensor_reshape[:, :, 0, :]
+    y = tensor_reshape[:, :, 1, :]
+    mean_x = torch.mean(x, dim=2).unsqueeze(-1)
+    mean_y = torch.mean(y, dim=2).unsqueeze(-1)
+
+    xx = torch.sum((x - mean_x) * (x - mean_x), dim=2).unsqueeze(-1) / (h * w - 1)
+    xy = torch.sum((x - mean_x) * (y - mean_y), dim=2).unsqueeze(-1) / (h * w - 1)
+    yx = xy
+    yy = torch.sum((y - mean_y) * (y - mean_y), dim=2).unsqueeze(-1) / (h * w - 1)
+
+    cov = torch.cat((xx, xy, yx, yy), dim=2)
+    cov = cov.reshape(bn, nk, 2, 2)
+    return cov
+
+
+def get_mu_and_prec(part_maps, device, scal):
     """
         Calculate mean for each channel of part_maps
         :param part_maps: tensor of part map activations [bn, n_part, h, w]
@@ -40,18 +58,34 @@ def get_mu_and_prec(part_maps, device, scal=0.8):
     row_2 = torch.cat((-b.unsqueeze(-1), a.unsqueeze(-1)), dim=-1).unsqueeze(-2)
 
     L_inv = scal / (det + eps) * torch.cat((row_1, row_2), dim=-2)  # L^⁻1 = 1/(ac)* [[c, 0], [-b, a]
+    return mu, L_inv # shape should be
 
-    return mu, L_inv
+
+def get_heat_map(mu, L_inv, device):
+    h, w, nk = 64, 64, L_inv.shape[1]
+
+    y_t = torch.linspace(-1., 1., h).reshape(h, 1).repeat(1, w).unsqueeze(-1)
+    x_t = torch.linspace(-1., 1., w).reshape(1, w).repeat(h, 1).unsqueeze(-1)
+
+    y_t_flat = y_t.reshape(1, 1, 1, -1)
+    x_t_flat = x_t.reshape(1, 1, 1, -1)
+
+    mesh = torch.cat((y_t_flat, x_t_flat), dim=-2).to(device)
+    dist = mesh - mu.unsqueeze(-1)
+    proj_precision = torch.einsum('bnik, bnkf -> bnif', L_inv, dist) ** 2  # tf.matmul(precision, dist)**2
+    proj_precision = torch.sum(proj_precision, -2)  # sum x and y axis
+    heat = 1 / (1 + proj_precision)
+    heat = heat.reshape(-1, nk, h, w)  # bn number parts width height
+
+    return heat
 
 
 def precision_dist_op(precision, dist, part_depth, nk, h, w):
     proj_precision = torch.einsum('bnik, bnkf -> bnif', precision, dist) ** 2  # tf.matmul(precision, dist)**2
     proj_precision = torch.sum(proj_precision, -2)  # sum x and y axis
-
     heat = 1 / (1 + proj_precision)
-    heat = heat.reshape(-1, nk, h, w)  # bn width height number parts
+    heat = heat.reshape(-1, nk, h, w)  # bn number parts width height
     part_heat = heat[:, :part_depth]
-    part_heat = part_heat
     return heat, part_heat
 
 
@@ -71,7 +105,7 @@ def reverse_batch(tensor, n_reverse):
     return tensor_rev
 
 
-def feat_mu_to_enc(features, mu, L_inv, device, static=True, n_reverse=1, covariance=None, feat_shape=None,
+def feat_mu_to_enc(features, mu, L_inv, device, covariance, static=True, n_reverse=1, feat_shape=True,
                    heat_feat_normalize=True, range=10):
     """
     :param features: tensor shape   bn, nk, nf
@@ -87,7 +121,7 @@ def feat_mu_to_enc(features, mu, L_inv, device, static=True, n_reverse=1, covari
     feat_map_depths = [[0, 0], [0, 0], [0, 0], [4, nk], [2, 4], [0, 2]]
 
     if static:
-        reverse_features = torch.cat((features[bn//2:], features[:bn//2]), 0)
+        reverse_features = features # why reverse features?
 
     else:
         reverse_features = reverse_batch(features, n_reverse)
@@ -148,14 +182,16 @@ def feat_mu_to_enc(features, mu, L_inv, device, static=True, n_reverse=1, covari
     return encoding_list
 
 
-def total_loss(input, reconstr, sig_shape, sig_app, coord, vector, device, L_mu=5., L_cov=0.1):
+def total_loss(input, reconstr, sig_shape, sig_app, coord, vector, device, L_mu, L_cov, scal):
     # Equiv Loss
     channels = sig_shape.shape[2]
     sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, channels, device=device)
-    mu_1, L_inv1 = get_mu_and_prec(sig_app, device)
-    cov_1 = torch.einsum('bnij, bnjk -> bnik', L_inv1.transpose(2, 3), L_inv1)
-    mu_2, L_inv2 = get_mu_and_prec(sig_shape_trans, device)
-    cov_2 = torch.einsum('bnij, bnjk -> bnik', L_inv2.transpose(2, 3), L_inv2)
+    mu_1, L_inv1 = get_mu_and_prec(sig_app, device, scal)
+    #cov_1 = torch.einsum('bnij, bnjk -> bnik', L_inv1.transpose(2, 3), L_inv1)
+    cov_1 = get_covariance(sig_app)
+    mu_2, L_inv2 = get_mu_and_prec(sig_shape_trans, device, scal)
+    # cov_2 = torch.einsum('bnij, bnjk -> bnik', L_inv2.transpose(2, 3), L_inv2)
+    cov_2 = get_covariance(sig_shape_trans)
     equiv_loss = torch.sum(L_mu * torch.norm(mu_1 - mu_2, p=2, dim=2) + \
                            L_cov * torch.norm(cov_1 - cov_2, p=1, dim=[2, 3]), dim=1)
 

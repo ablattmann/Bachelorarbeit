@@ -1,7 +1,6 @@
 import torch.nn.functional as F
 import torch
 from dotmap import DotMap
-import torchvision
 
 
 def tf_rotation_mat(rotation):
@@ -17,23 +16,22 @@ def tf_rotation_mat(rotation):
     return mat
 
 
-def tps_parameters(batch_size, scal=0.8, tps_scal=0.2, rot_scal=0.5, off_scal=0.55, scal_var=0.1, rescal=1., augm_scal=1.):
+def tps_parameters(scal, tps_scal, rot_scal, off_scal, scal_var, augm_scal, rescal=1.):
     coord = torch.tensor([[[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5],
                          [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2], [-0.2, - 0.2]]],
                          dtype=torch.float32)
 
-    coord = coord.repeat(batch_size, 1, 1)
     shape = coord.shape
     coord = coord + (-0.2 - 0.2) * torch.rand(size=shape) + 0.2
     vector = (-tps_scal - tps_scal) * torch.rand(size=shape, dtype=torch.float32) + tps_scal
 
-    offset = (-off_scal - off_scal) * torch.rand(size=[batch_size, 1, 2], dtype=torch.float32) + off_scal
-    offset_2 = (-off_scal - off_scal) * torch.rand(size=[batch_size, 1, 2], dtype=torch.float32) + off_scal
-    t_scal = (scal * (1. - scal_var) - scal * (1. + scal_var)) * torch.rand(size=[batch_size, 2], dtype=torch.float32) \
+    offset = (-off_scal - off_scal) * torch.rand(size=[1, 1, 2], dtype=torch.float32) + off_scal
+    offset_2 = (-off_scal - off_scal) * torch.rand(size=[1, 1, 2], dtype=torch.float32) + off_scal
+    t_scal = (scal * (1. - scal_var) - scal * (1. + scal_var)) * torch.rand(size=[1, 2], dtype=torch.float32) \
              + scal * (1. + scal_var)
     t_scal = t_scal * rescal
 
-    rot_param = (-rot_scal - rot_scal) * torch.rand(size=[batch_size, 1], dtype=torch.float32) + rot_scal
+    rot_param = (-rot_scal - rot_scal) * torch.rand(size=[1, 1], dtype=torch.float32) + rot_scal
     rot_mat = torch.cat([tf_rotation_mat(rot_param[i]).unsqueeze(0) for i in range(rot_param.shape[0])], 0)
 
     parameter_dict = {'coord': coord, 'vector': vector, 'offset': offset, 'offset_2': offset_2,
