@@ -22,8 +22,8 @@ class ImageDataset(Dataset):
         self.augm_scal = arg.augm_scal
         self.images = images
         self.transforms = transforms.Compose([transforms.ToTensor(),
-                                                    transforms.Normalize([0.5], [0.5])
-                                                    ])
+                                              transforms.Normalize([0.5], [0.5])
+                                              ])
 
     def __len__(self):
         return len(self.images)
@@ -33,7 +33,7 @@ class ImageDataset(Dataset):
         image = self.images[index]
 
         # Get parameters for transformations
-        tps_param_dic = tps_parameters(self.scal, self.tps_scal, self.rot_scal, self.off_scal,
+        tps_param_dic = tps_parameters(1, self.scal, self.tps_scal, self.rot_scal, self.off_scal,
                                        self.scal_var, self.augm_scal)
         coord, vector = make_input_tps_param(tps_param_dic)
 
@@ -49,3 +49,22 @@ class ImageDataset(Dataset):
         coord, vector = coord[0], vector[0]
 
         return original, x_spatial_transform, x_appearance_transform, coord, vector
+
+
+class ImageDataset2(Dataset):
+    def __init__(self, images, arg):
+        super(ImageDataset2, self).__init__()
+        self.images = images
+        self.transforms = transforms.Compose([transforms.ToTensor(),
+                                              transforms.Normalize([0.5], [0.5])
+                                              ])
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, index):
+        # Select Image
+        image = self.images[index]
+        original = self.transforms(image)
+
+        return original

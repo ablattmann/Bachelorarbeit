@@ -296,17 +296,23 @@ coord, vector = make_input_tps_param(tps_param_dic)
 t_images1, t_mesh = ThinPlateSpline(image1, coord, vector, 128, 3)
 aorg1 = t_images1[0]
 aorg2 = t_images1[1]
-plt.imshow(aorg1)
-plt.show()
-plt.imshow(aorg2)
-plt.show()
+# plt.imshow(aorg1)
+# plt.show()
+# plt.imshow(aorg2)
+# plt.show()
 image_in, image_rec = prepare_pairs(t_images1, 128)
 original = image_rec.numpy()
 org1 = original[0]
 org2 = original[1]
+rec1 = image_rec[0]
+rec2 = image_rec[1]
 plt.imshow(org1)
 plt.show()
 plt.imshow(org2)
+plt.show()
+plt.imshow(rec1)
+plt.show()
+plt.imshow(rec2)
 plt.show()
 transform_mesh = tf.image.resize(t_mesh, size=(128, 128))
 volume_mesh = AbsDetJacobian(transform_mesh)
