@@ -3,10 +3,11 @@ import torch.nn as nn
 from transformations import ThinPlateSpline
 import kornia.augmentation as K
 import torch.nn.functional as F
+from opt_einsum import contract
 
 
 def get_local_part_appearances(f, sig):
-    alpha = torch.einsum('bfij, bkij -> bkf', f, sig)
+    alpha = contract('bfij, bkij -> bkf', f, sig)
     return alpha
 
 
@@ -39,11 +40,11 @@ def get_mu_and_prec(part_maps, device, scal):
     x_t = torch.linspace(-1., 1., w).reshape(1, w).repeat(h, 1).unsqueeze(-1)
     meshgrid = torch.cat((y_t, x_t), dim=-1).to(device) # 64 x 64 x 2
 
-    mu = torch.einsum('ijl, akij -> akl', meshgrid, part_maps) # 1 x 20 x 2
-    mu_out_prod = torch.einsum('akm,akn->akmn', mu, mu)
+    mu = contract('ijl, akij -> akl', meshgrid, part_maps) # 1 x 20 x 2
+    mu_out_prod = contract('akm,akn->akmn', mu, mu)
 
-    mesh_out_prod = torch.einsum('ijm,ijn->ijmn', meshgrid, meshgrid)
-    stddev = torch.einsum('ijmn,akij->akmn', mesh_out_prod, part_maps) - mu_out_prod
+    mesh_out_prod = contract('ijm,ijn->ijmn', meshgrid, meshgrid)
+    stddev = contract('ijmn,akij->akmn', mesh_out_prod, part_maps) - mu_out_prod
 
     a_sq = stddev[:, :, 0, 0]
     a_b = stddev[:, :, 0, 1]
@@ -74,7 +75,7 @@ def get_heat_map(mu, L_inv, device):
 
     mesh = torch.cat((y_t_flat, x_t_flat), dim=-2).to(device)
     dist = mesh - mu.unsqueeze(-1)
-    proj_precision = torch.einsum('bnik, bnkf -> bnif', L_inv, dist) ** 2  # tf.matmul(precision, dist)**2
+    proj_precision = contract('bnik, bnkf -> bnif', L_inv, dist) ** 2  # tf.matmul(precision, dist)**2
     proj_precision = torch.sum(proj_precision, -2)  # sum x and y axis
     heat = 1 / (1 + proj_precision)
     heat = heat.reshape(-1, nk, h, w)  # bn number parts width height
@@ -83,7 +84,7 @@ def get_heat_map(mu, L_inv, device):
 
 
 def precision_dist_op(precision, dist, part_depth, nk, h, w):
-    proj_precision = torch.einsum('bnik, bnkf -> bnif', precision, dist) ** 2  # tf.matmul(precision, dist)**2
+    proj_precision = contract('bnik, bnkf -> bnif', precision, dist) ** 2  # tf.matmul(precision, dist)**2
     proj_precision = torch.sum(proj_precision, -2)  # sum x and y axis
     heat = 1 / (1 + proj_precision)
     heat = heat.reshape(-1, nk, h, w)  # bn number parts width height
@@ -107,7 +108,7 @@ def reverse_batch(tensor, n_reverse):
     return tensor_rev
 
 
-def feat_mu_to_enc(features, mu, L_inv, device, covariance, static=True, n_reverse=2, feat_shape=True,
+def feat_mu_to_enc(features, mu, L_inv, device, covariance, reconstr_dim, static=True, n_reverse=2, feat_shape=True,
                    heat_feat_normalize=True, range=10):
     """
     :param features: tensor shape   bn, nk, nf
@@ -117,14 +118,18 @@ def feat_mu_to_enc(features, mu, L_inv, device, covariance, static=True, n_rever
     :return:
     """
     bn, nk, nf = features.shape
-    # for rec_dim = 128
-
-    reconstruct_stages = [[128, 128], [64, 64], [32, 32], [16, 16], [8, 8], [4, 4]]
-    part_depths = [nk, nk, nk, nk, 4, 2]
-    feat_map_depths = [[0, 0], [0, 0], [0, 0], [4, nk], [2, 4], [0, 2]]
+    if reconstr_dim == 128:
+        reconstruct_stages = [[128, 128], [64, 64], [32, 32], [16, 16], [8, 8], [4, 4]]
+        feat_map_depths = [[0, 0], [0, 0], [0, 0], [4, nk], [2, 4], [0, 2]]
+        part_depths = [nk, nk, nk, nk, 4, 2]
+    elif reconstr_dim == 256:
+        reconstruct_stages = [[256, 256], [128, 128], [64, 64], [32, 32], [16, 16], [8, 8], [4, 4]]
+        feat_map_depths = [[0, 0], [0, 0], [0, 0], [0, 0], [4, nk], [2, 4], [0, 2]]
+        part_depths = [nk, nk, nk, nk, nk, 4, 2]
 
     if static:
-        reverse_features = torch.cat([features[bn // 2:], features[:bn // 2]], dim=0)
+        #reverse_features = torch.cat([features[bn // 2:], features[:bn // 2]], dim=0)
+        reverse_features = features
     else:
         reverse_features = reverse_batch(features, n_reverse)
 
@@ -165,7 +170,7 @@ def feat_mu_to_enc(features, mu, L_inv, device, covariance, static=True, n_rever
                 heat_scal_norm = torch.sum(heat_scal, 1, keepdim=True) + 1
                 heat_scal = heat_scal / heat_scal_norm
 
-            heat_feat_map = torch.einsum('bkij,bkn->bnij', heat_scal, feature_slice_rev)
+            heat_feat_map = contract('bkij,bkn->bnij', heat_scal, feature_slice_rev)
 
 
             if covariance:
@@ -189,10 +194,10 @@ def total_loss(input, reconstr, sig_shape, sig_app, coord, vector, device, L_mu,
     channels = sig_shape.shape[2]
     sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, channels, device=device)
     mu_1, L_inv1 = get_mu_and_prec(sig_app, device, scal)
-    #cov_1 = torch.einsum('bnij, bnjk -> bnik', L_inv1.transpose(2, 3), L_inv1)
+    #cov_1 = contract('bnij, bnjk -> bnik', L_inv1.transpose(2, 3), L_inv1)
     cov_1 = get_covariance(sig_app)
     mu_2, L_inv2 = get_mu_and_prec(sig_shape_trans, device, scal)
-    # cov_2 = torch.einsum('bnij, bnjk -> bnik', L_inv2.transpose(2, 3), L_inv2)
+    # cov_2 = contract('bnij, bnjk -> bnik', L_inv2.transpose(2, 3), L_inv2)
     cov_2 = get_covariance(sig_shape_trans)
     equiv_loss = torch.mean(torch.sum(L_mu * torch.norm(mu_1 - mu_2, p=2, dim=2) + \
                            L_cov * torch.norm(cov_1 - cov_2, p=1, dim=[2, 3]), dim=1))
@@ -200,7 +205,7 @@ def total_loss(input, reconstr, sig_shape, sig_app, coord, vector, device, L_mu,
     # Rec Loss
     rec_loss = nn.MSELoss()(input, reconstr)
 
-    total_loss = rec_loss
+    total_loss = rec_loss + equiv_loss
     return total_loss
 
 

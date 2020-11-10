@@ -3,8 +3,9 @@ import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--name', default="First Try", type=str, help="name of the experiment")
-
+    parser.add_argument('--name', default="10epoch_128f_recloss_0_00005lr", type=str,
+                        help="name of the experiment", required=True)
+    parser.add_argument('--gpu', type=int, required=True)
     # run setting
     parser.add_argument('--mode', default='train', choices=['train', 'predict'])
     parser.add_argument('--load_from_ckpt', default=False, type=bool)
@@ -14,7 +15,8 @@ def parse_args():
 
     # options
     parser.add_argument('--covariance', default=True, type=bool)
-    parser.add_argument('--epochs', default=1000, type=int, help="number of epochs")
+    parser.add_argument('--epochs', default=10, type=int, help="number of epochs")
+    parser.add_argument('--reconstr_dim', default=256, type=int, help="dimension of reconstruction")
 
     # modes
     parser.add_argument('--bn', default=16, type=int,  help="batchsize if not slim and 2 * batchsize if slim")
@@ -26,7 +28,7 @@ def parse_args():
     parser.add_argument('--depth_a', default=1, type=int, help="depth of appearance hourglass")
 
     # loss multiplication constants
-    parser.add_argument('--lr',  default=0.0001, type=float, help="learning rate of network")
+    parser.add_argument('--lr',  default=0.001, type=float, help="learning rate of network", required=True)
     parser.add_argument('--L_mu', default=5., type=float, help="")
     parser.add_argument('--L_cov', default=0.1, type=float, help="")
 
@@ -51,7 +53,7 @@ def parse_args():
 
 
 def write_hyperparameters(r, save_dir):
-    filename = save_dir + "config.txt"
+    filename = save_dir + "/config.txt"
     with open(filename, "a") as input_file:
         for k, v in r.items():
             line = '{}, {}'.format(k, v)

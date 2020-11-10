@@ -5,6 +5,7 @@ from matplotlib import cm
 import matplotlib.pyplot as plt
 import os
 from skimage.transform import pyramid_reduce
+from opt_einsum import contract
 
 
 def preprocess_image(image):
@@ -18,7 +19,7 @@ def batch_colour_map(heat_map, device):
     for i in range(c):
         colour.append(cm.hsv(float(i / c))[:3])     # does that work?
     colour = torch.tensor(colour, dtype=torch.float).to(device)
-    colour_map = torch.einsum('bkij, kl -> blij', heat_map, colour)
+    colour_map = contract('bkij, kl -> blij', heat_map, colour)
     return colour_map
 
 
@@ -28,7 +29,7 @@ def np_batch_colour_map(heat_map, device):
     for i in range(c):
         colour.append(cm.hsv(float(i / c))[:3])
     np_colour = np.array(colour).to(device)
-    colour_map = np.einsum('bkij,kl->blij', heat_map, np_colour)
+    colour_map = contract('bkij,kl->blij', heat_map, np_colour)
     return colour_map
 
 
@@ -97,11 +98,9 @@ def load_images_from_folder():
     folder = "/export/scratch2/compvis_datasets/deepfashion_vunet/train/"
     images = []
     for i, filename in enumerate(os.listdir(folder)):
-        if i == 100:
-            break
         img = plt.imread(os.path.join(folder, filename))
         if img is not None:
-            images.append(pyramid_reduce(img, downscale=2, multichannel=True))
+            images.append(img)
     return images
 
 

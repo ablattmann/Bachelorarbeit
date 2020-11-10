@@ -4,12 +4,14 @@ from architecture_ops import E, Decoder
 from ops import feat_mu_to_enc, get_local_part_appearances, get_mu_and_prec, total_loss, get_heat_map, prepare_pairs, AbsDetJacobian
 from transformations import ThinPlateSpline, tps_parameters, make_input_tps_param
 import torch.nn.functional as F
+from opt_einsum import contract
 
 class Model(nn.Module):
     def __init__(self, arg):
         super(Model, self).__init__()
         self.arg = arg
         self.mode = arg.mode
+        self.reconstr_dim = arg.reconstr_dim
         self.n_parts = arg.n_parts
         self.n_features = arg.n_features
         self.device = arg.device
@@ -24,7 +26,7 @@ class Model(nn.Module):
         self.L_inv_scal = arg.L_inv_scal
         self.E_sigma = E(self.depth_s, self.n_parts, residual_dim=self.residual_dim, sigma=True)
         self.E_alpha = E(self.depth_a, self.n_features, residual_dim=self.residual_dim, sigma=False)
-        self.decoder = Decoder(self.n_parts, self.n_features)
+        self.decoder = Decoder(self.n_parts, self.n_features, self.reconstr_dim)
 
     def forward(self, x, x_spatial_transform, x_appearance_transform, coord, vector):
         # Shape Stream
@@ -36,7 +38,7 @@ class Model(nn.Module):
         f_xs = self.E_alpha(appearance_stream_sum)
         alpha = get_local_part_appearances(f_xs, appearance_stream_parts)
         # Decoder
-        encoding = feat_mu_to_enc(alpha, mu, L_inv, self.device, self.covariance)
+        encoding = feat_mu_to_enc(alpha, mu, L_inv, self.device, self.covariance, self.reconstr_dim)
         reconstruction = self.decoder(encoding)
         # Loss
         loss = total_loss(x, reconstruction, shape_stream_parts, appearance_stream_parts, coord, vector, self.device,
@@ -97,10 +99,10 @@ class Model2(nn.Module):
         # transform
         integrant = (part_maps.unsqueeze(-1) * volume_mesh.unsqueeze(-1)).squeeze()
         integrant = integrant / torch.sum(integrant, dim=[2, 3], keepdim=True)
-        mu_t = torch.einsum('akij, alij -> akl', integrant, transform_mesh)
-        transform_mesh_out_prod = torch.einsum('amij, anij -> amnij', transform_mesh, transform_mesh)
-        mu_out_prod = torch.einsum('akm, akn -> akmn', mu_t, mu_t)
-        stddev_t = torch.einsum('akij, amnij -> akmn', integrant, transform_mesh_out_prod) - mu_out_prod
+        mu_t = contract('akij, alij -> akl', integrant, transform_mesh)
+        transform_mesh_out_prod = contract('amij, anij -> amnij', transform_mesh, transform_mesh)
+        mu_out_prod = contract('akm, akn -> akmn', mu_t, mu_t)
+        stddev_t = contract('akij, amnij -> akmn', integrant, transform_mesh_out_prod) - mu_out_prod
 
         # processing
         encoding = feat_mu_to_enc(features, mu, L_inv, self.device, self.covariance)

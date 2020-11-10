@@ -2,7 +2,6 @@ from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 import kornia.augmentation as K
 from transformations import tps_parameters, make_input_tps_param, ThinPlateSpline
-import torch
 
 
 class ImageDataset(Dataset):
@@ -38,10 +37,9 @@ class ImageDataset(Dataset):
         coord, vector = make_input_tps_param(tps_param_dic)
 
         # Make transformations
-        x_spatial_transform = self.transforms(image).unsqueeze(0).to(self.device)
-        coord, vector = coord.to(self.device), vector.to(self.device)
+        x_spatial_transform = self.transforms(image).unsqueeze(0)
         x_spatial_transform, t_mesh = ThinPlateSpline(x_spatial_transform, coord,
-                                                      vector, 128, device=self.device)
+                                                      vector, 128, device='cpu')
         x_spatial_transform = x_spatial_transform.squeeze(0)
         x_appearance_transform = K.ColorJitter(self.brightness, self.contrast, self.saturation, self.hue)\
                                 (self.transforms(image).unsqueeze(0)).squeeze(0)

@@ -1,6 +1,7 @@
 import torch.nn.functional as F
 import torch
 from dotmap import DotMap
+from opt_einsum import contract
 
 
 def tf_rotation_mat(rotation):
@@ -51,12 +52,12 @@ def make_input_tps_param(tps_param, move_point=None, scal_point=None):
     rot_mat = tps_param.rot_mat
     t_scal = tps_param.t_scal
 
-    scaled_coord = torch.einsum('bk,bck->bck', t_scal, coord + vector - offset) + offset
-    t_vector = torch.einsum('blk,bck->bcl', rot_mat, scaled_coord - offset_2) + offset_2 - coord
+    scaled_coord = contract('bk,bck->bck', t_scal, coord + vector - offset) + offset
+    t_vector = contract('blk,bck->bcl', rot_mat, scaled_coord - offset_2) + offset_2 - coord
 
     if move_point is not None and scal_point is not None:
-        coord = torch.einsum('bk,bck->bck', scal_point, coord + move_point)
-        t_vector = torch.einsum('bk,bck->bck', scal_point, t_vector)
+        coord = contract('bk,bck->bck', scal_point, coord + move_point)
+        t_vector = contract('bk,bck->bck', scal_point, t_vector)
 
     else:
         assert(move_point is None and scal_point is None)

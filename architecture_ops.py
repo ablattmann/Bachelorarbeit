@@ -3,9 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-Pool = nn.MaxPool2d
-
-
 def softmax(logit_map):
     eps = 1e-12
     exp = torch.exp(logit_map - torch.max(logit_map.view(logit_map.size(0), logit_map.size(1), -1), dim=2)[0].unsqueeze(-1).unsqueeze(-1))
@@ -74,7 +71,7 @@ class Hourglass(nn.Module):
         super(Hourglass, self).__init__()
         self.up1 = Residual(f, f)
         # Lower branch
-        self.pool1 = Pool(2, 2)
+        self.pool1 = nn.MaxPool2d(2, 2)
         self.low1 = Residual(f, f)
         self.n = n
         # Recursive hourglass
@@ -96,26 +93,36 @@ class Hourglass(nn.Module):
 
 
 class E(nn.Module):
-    def __init__(self, depth, n_feature, residual_dim, sigma=True):
+    def __init__(self, depth, n_feature, residual_dim, sigma=True, reconstr_dim=256):
         super(E, self).__init__()
         self.sigma = sigma
+        self.reconstr_dim = reconstr_dim
         self.hg = Hourglass(depth, residual_dim)  # depth 4 has bottleneck of 4x4
         self.dropout = nn.Dropout()
         self.out = Conv(residual_dim, residual_dim, kernel_size=1, stride=1, bn=True, relu=True)
         self.feature = Conv(residual_dim, n_feature, kernel_size=1, stride=1, bn=False, relu=False)
+        # Preprocessing
         if self.sigma:
-            self.preprocess_1 = Conv(3, 64, kernel_size=6, stride=2, bn=True, relu=True)  # transform to 64 x 64 for sigma
-            self.preprocess_2 = Residual(64, residual_dim)
+            if self.reconstr_dim == 128:
+                self.preprocess_sigma = nn.Sequential(Conv(3, 64, kernel_size=6, stride=2, bn=True, relu=True),
+                                                Residual(64, residual_dim)
+                                                )
+            elif self.reconstr_dim == 256:
+                self.preprocess_sigma = nn.Sequential(Conv(3, 64, kernel_size=6, stride=2, bn=True, relu=True),
+                                                Residual(64, 128),
+                                                nn.MaxPool2d(2, 2),
+                                                Residual(128, 128),
+                                                Residual(128, 256)
+                                                )
             self.map_transform = Conv(n_feature, residual_dim, 1, 1)    # channels for addition must be increased
-        #if not self.sigma:
-        #    self.preprocess_3 = Conv(2 * residual_dim, residual_dim, 1, 1, bn=True, relu=True)
+        if not self.sigma:
+            self.preprocess_alpha = Conv(2 * residual_dim, residual_dim, 1, 1, bn=True, relu=True)
 
     def forward(self, x):
         if self.sigma:
-            x = self.preprocess_1(x)
-            x = self.preprocess_2(x)
-        #else:
-        #    x = self.preprocess_3(x) # Try for concatenate instead of sum
+            x = self.preprocess_sigma(x)
+        else:
+            x = self.preprocess_alpha(x) # Try for concatenate instead of sum
         out = self.hg(x)
         out = self.dropout(out)
         out = self.out(out)
@@ -124,8 +131,8 @@ class E(nn.Module):
         if self.sigma:
             map_normalized = F.softmax(map.reshape(map.size(0), map.size(1), -1), dim=2).view_as(map)
             map_transformed = self.map_transform(map_normalized)
-            #stack = torch.cat((map_transformed, x), dim=1) # Try for concatenate insteaad of sum
-            stack = map_transformed + x
+            stack = torch.cat((map_transformed, x), dim=1) # Try for concatenate instead of sum
+            #stack = map_transformed + x
             return map_normalized, stack
         else:
             return map
@@ -144,22 +151,29 @@ class Nccuc(nn.Module):
     def forward(self, input_A, input_B):
         down_conv = self.down_Conv(input_A)
         up_conv = self.up_Conv(down_conv)
-        up_conv = self.relu(up_conv)
         out = torch.cat((up_conv, input_B), dim=1)
         return out
 
 
 class Decoder(nn.Module):
-    def __init__(self, nk, nf, reconstr_dim=128, n_c=3):
+    def __init__(self, nk, nf, reconstr_dim, n_c=3):
         super(Decoder, self).__init__()
         self.reconstr_dim = reconstr_dim
         self.out_channels = n_c
         self.conv1 = Nccuc(nf + 2, [512, 512])  # 8
         self.conv2 = Nccuc(nf + 4 + 512, [512, 256])  # 16
         self.conv3 = Nccuc(nf + nk + 256, [256, 256])  # 32
-        self.conv4 = Nccuc(nk + 256, [256, 128])  # 64
-        self.conv5 = Nccuc(nk + 128, [128, 64])   # 128
-        self.conv6 = Conv(nk + 64, self.out_channels, kernel_size=5, stride=1, relu=False)
+
+        if reconstr_dim == 128:
+            self.conv4 = Nccuc(nk + 256, [256, 128])  # 64
+            self.conv5 = Nccuc(nk + 128, [128, 64])   # 128
+            self.conv6 = Conv(nk + 64, self.out_channels, kernel_size=5, stride=1, relu=False)
+
+        if reconstr_dim == 256:
+            self.conv4 = Nccuc(nk + 256, [256, 128])  # 64
+            self.conv5 = Nccuc(nk + 128, [128, 128])    # 128
+            self.conv6 = Nccuc(nk + 128, [128, 64])     # 256
+            self.conv7 = Conv(nk + 64, self.out_channels, kernel_size=5, stride=1, relu=False)
 
     def forward(self, encoding_list):
         conv1 = self.conv1(encoding_list[-1], encoding_list[-2])
@@ -167,6 +181,11 @@ class Decoder(nn.Module):
         conv3 = self.conv3(conv2, encoding_list[-4])
         conv4 = self.conv4(conv3, encoding_list[-5])
         conv5 = self.conv5(conv4, encoding_list[-6])
-        conv6 = self.conv6(conv5)
-        out = torch.sigmoid(conv6)
+        if self.reconstr_dim == 128:
+            conv6 = self.conv6(conv5)
+            out = torch.sigmoid(conv6)
+        if self.reconstr_dim == 256:
+            conv6 = self.conv6(conv5, encoding_list[-7])
+            conv7 = self.conv7(conv6)
+            out = torch.sigmoid(conv7)
         return out
