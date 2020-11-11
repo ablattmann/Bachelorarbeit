@@ -33,6 +33,8 @@ def parse_args():
     parser.add_argument('--L_cov', default=0.1, type=float, help="")
 
     # tps parameters
+    parser.add_argument('--l_2_scal', default=0.1, type=float, help="scale around part means that is considered for l2")
+    parser.add_argument('--l_2_threshold', default=0.2, type=float, help="")
     parser.add_argument('--L_inv_scal', default=1., type=float, help="")
     parser.add_argument('--scal', default=1., type=float, nargs='+', help="default 0.6 sensible schedule [0.6, 0.6]")
     parser.add_argument('--tps_scal', default=0.3, type=float, nargs='+', help="sensible schedule [0.01, 0.08]")

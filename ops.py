@@ -61,7 +61,7 @@ def get_mu_and_prec(part_maps, device, scal):
     row_2 = torch.cat((-b.unsqueeze(-1), a.unsqueeze(-1)), dim=-1).unsqueeze(-2)
 
     L_inv = scal / (det + eps) * torch.cat((row_1, row_2), dim=-2)  # L^⁻1 = 1/(ac)* [[c, 0], [-b, a]
-    return mu, L_inv # shape should be
+    return mu, L_inv
 
 
 def get_heat_map(mu, L_inv, device):
@@ -189,10 +189,11 @@ def feat_mu_to_enc(features, mu, L_inv, device, covariance, reconstr_dim, static
     return encoding_list
 
 
-def total_loss(input, reconstr, sig_shape, sig_app, coord, vector, device, L_mu, L_cov, scal):
+def total_loss(input, reconstr, sig_shape, sig_app, mu, coord, vector,
+               device, L_mu, L_cov, scal, l_2_scal, l_2_threshold):
+    bn, k, h, w = sig_shape.shape
     # Equiv Loss
-    channels = sig_shape.shape[2]
-    sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, channels, device=device)
+    sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, h, device=device)
     mu_1, L_inv1 = get_mu_and_prec(sig_app, device, scal)
     #cov_1 = contract('bnij, bnjk -> bnik', L_inv1.transpose(2, 3), L_inv1)
     cov_1 = get_covariance(sig_app)
@@ -203,10 +204,12 @@ def total_loss(input, reconstr, sig_shape, sig_app, coord, vector, device, L_mu,
                            L_cov * torch.norm(cov_1 - cov_2, p=1, dim=[2, 3]), dim=1))
 
     # Rec Loss
-    rec_loss = nn.MSELoss()(input, reconstr)
+    distance_metric = (input - reconstr)**2
+    fold_img_squared, heat_mask_l2 = fold_img_with_mu(distance_metric, mu, l_2_scal, l_2_threshold, device)
+    rec_loss = torch.mean(torch.sum(fold_img_squared.reshape(bn, k, -1), dim=2), dim=1)
 
     total_loss = rec_loss + equiv_loss
-    return total_loss
+    return rec_loss
 
 
 def count_parameters(model):
@@ -275,3 +278,49 @@ def AbsDetJacobian(batch_meshgrid, device):
     Det = torch.abs(filtered_y_y * filtered_x_x - filtered_y_x * filtered_x_y)
 
     return Det
+
+
+def heat_map_function(y_dist, x_dist, y_scale, x_scale):
+    x = 1 / (1 + (torch.square(y_dist / (1e-6 + y_scale)) + torch.square(
+        x_dist / (1e-6 + x_scale))))
+    return x
+
+
+def fold_img_with_mu(img, mu, scale, threshold, device, normalize=True):
+    """
+        folds the pixel values of img with potentials centered around the part means (mu)
+        :param img: batch of images
+        :param mu:  batch of part means in range [-1, 1]
+        :param scale: scale that governs the range of the potential
+        :param visualize:
+        :param normalize: whether to normalize the potentials
+        :return: folded image
+        """
+    bn, nc, h, w = img.shape
+    bn, nk, _ = mu.shape
+
+    py = mu[:, :, 0].unsqueeze(2)
+    px = mu[:, :, 1].unsqueeze(2)
+
+    y_t = torch.linspace(-1., 1., h).reshape(h, 1).repeat(1, w)
+    x_t = torch.linspace(-1., 1., w).reshape(1, w).repeat(h, 1)
+    x_t_flat = x_t.reshape(1, 1, -1).to(device)
+    y_t_flat = y_t.reshape(1, 1, -1).to(device)
+
+    y_dist = py - y_t_flat
+    x_dist = px - x_t_flat
+
+    heat_scal = heat_map_function(y_dist=y_dist, x_dist=x_dist, x_scale=scale, y_scale=scale)
+    heat_scal = heat_scal.reshape(bn, nk, h, w)  # bn width height number parts
+    heat_scal = contract("bkij -> bij", heat_scal)
+    heat_scal = torch.clamp(heat_scal, min=0., max=1.)
+    heat_scal = torch.where(heat_scal > threshold, heat_scal, torch.zeros_like(heat_scal))
+
+    norm = torch.sum(heat_scal.reshape(bn, -1), dim=1).unsqueeze(1).unsqueeze(1)
+    if normalize:
+        heat_scal_norm = heat_scal / norm
+        folded_img = contract('bcij,bij->bcij', img, heat_scal_norm)
+    if not normalize:
+        folded_img = contract('bcij,bij->bcij', img, heat_scal)
+
+    return folded_img, heat_scal.unsqueeze(-1)

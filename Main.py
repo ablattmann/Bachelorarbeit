@@ -8,6 +8,8 @@ from dotmap import DotMap
 import os
 import numpy as np
 from torchvision.utils import save_image
+from transformations import tps_parameters, make_input_tps_param, ThinPlateSpline
+import kornia.augmentation as K
 
 
 def main2(arg):
@@ -121,9 +123,9 @@ def main(arg):
 
         # Load Datasets
         data = load_images_from_folder()
-        train_data = np.array(data[:-1000])
+        train_data = np.array(data[:500])
         train_dataset = ImageDataset(train_data, arg)
-        test_data = np.array(data[-1000:])
+        test_data = np.array(data[-50:])
         test_dataset = ImageDataset(test_data, arg)
 
         # Prepare Dataloader & Instances
@@ -139,12 +141,19 @@ def main(arg):
             # Train on Train Set
             model.train()
             model.mode = 'train'
-            for step, (original, spat, app, coord, vec) in enumerate(train_loader):
-                original, spat, app, coord, vec = original.to(device, dtype=torch.float), spat.to(device, dtype=torch.float), \
-                                                  app.to(device, dtype=torch.float), coord.to(device, dtype=torch.float), \
-                                                  vec.to(device, dtype=torch.float)
+            for step, original in enumerate(train_loader):
+                original = original.to(device)
+                # Make transformations
+                tps_param_dic = tps_parameters(bn, arg.scal, arg.tps_scal, arg.rot_scal, arg.off_scal,
+                                               arg.scal_var, arg.augm_scal)
+                coord, vector = make_input_tps_param(tps_param_dic)
+                coord, vector = coord.to(device), vector.to(device)
+                image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
+                                                             original.shape[3], device)
+                image_appearance_t = K.ColorJitter(arg.brightness, arg.contrast, arg.saturation, arg.hue)(original)
+                # Zero out gradients
                 optimizer.zero_grad()
-                prediction, loss = model(original, spat, app, coord, vec)
+                prediction, loss = model(original, image_spatial_t, image_appearance_t, coord, vector)
                 loss.backward()
                 optimizer.step()
                 if step == 0:
@@ -155,12 +164,17 @@ def main(arg):
 
             # Evaluate on Test Set
             model.eval()
-            for step, (original, spat, app, coord, vec) in enumerate(test_loader):
+            for step, original in enumerate(test_loader):
                 with torch.no_grad():
-                    original, spat, app, coord, vec = original.to(device, dtype=torch.float), spat.to(device, dtype=torch.float), \
-                                                      app.to(device, dtype=torch.float), coord.to(device, dtype=torch.float), \
-                                                      vec.to(device, dtype=torch.float)
-                    prediction, loss = model(original, spat, app, coord, vec)
+                    original = original.to(device)
+                    tps_param_dic = tps_parameters(bn, arg.scal, arg.tps_scal, arg.rot_scal, arg.off_scal,
+                                                   arg.scal_var, arg.augm_scal)
+                    coord, vector = make_input_tps_param(tps_param_dic)
+                    coord, vector = coord.to(device), vector.to(device)
+                    image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
+                                                         original.shape[3], device)
+                    image_appearance_t = K.ColorJitter(arg.brightness, arg.contrast, arg.saturation, arg.hue)(original)
+                    prediction, loss = model(original, image_spatial_t, image_appearance_t, coord, vector)
                     if step == 0:
                         loss_log = torch.tensor([loss])
                     else:
@@ -170,7 +184,8 @@ def main(arg):
             # Track Progress
             if epoch % 2 == 0:
                 model.mode = 'predict'
-                image, reconstruction, mu, shape_stream_parts = model(original, spat, app, coord, vec)
+                image, reconstruction, mu, shape_stream_parts = model(original, image_spatial_t,
+                                                                      image_appearance_t, coord, vector)
                 for i in range(len(image)):
                     save_image(image[i], model_save_dir + '/image/' + str(i) + '_' + str(epoch) + '.png')
                     save_image(reconstruction[i], model_save_dir + '/reconstruction/' + str(i) + '_' + str(epoch) + '.png')
@@ -180,12 +195,4 @@ def main(arg):
 if __name__ == '__main__':
     arg = DotMap(vars(parse_args()))
     main(arg)
-    # reconstruction_0 = torch.load(arg.name + '/reconstruction/300.pt')[2]
-    # plot_tensor(reconstruction_0)
-    # reconstruction_10 = torch.load(arg.name + '/reconstruction/500.pt')[2]
-    # plot_tensor(reconstruction_10)
-    # reconstruction_20 = torch.load(arg.name + '/reconstruction/800.pt')[2]
-    # plot_tensor(reconstruction_20)
-    # reconstruction_30 = torch.load(arg.name + '/reconstruction/995.pt')[2]
-    # plot_tensor(reconstruction_30)
 

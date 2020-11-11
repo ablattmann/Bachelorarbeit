@@ -21,6 +21,8 @@ class Model(nn.Module):
         self.covariance = arg.covariance
         self.L_mu = arg.L_mu
         self.L_cov = arg.L_cov
+        self.l_2_scal = arg.l_2_scal
+        self.l_2_threshold = arg.l_2_threshold
         self.tps_scal = arg.tps_scal
         self.scal = arg.scal
         self.L_inv_scal = arg.L_inv_scal
@@ -35,14 +37,14 @@ class Model(nn.Module):
         heat_map = get_heat_map(mu, L_inv, self.device)
         # Appearance Stream
         appearance_stream_parts, appearance_stream_sum = self.E_sigma(x_spatial_transform)
-        f_xs = self.E_alpha(appearance_stream_sum)
-        alpha = get_local_part_appearances(f_xs, appearance_stream_parts)
+        local_features = self.E_alpha(appearance_stream_sum)
+        local_part_appearances = get_local_part_appearances(local_features, appearance_stream_parts)
         # Decoder
-        encoding = feat_mu_to_enc(alpha, mu, L_inv, self.device, self.covariance, self.reconstr_dim)
+        encoding = feat_mu_to_enc(local_part_appearances, mu, L_inv, self.device, self.covariance, self.reconstr_dim)
         reconstruction = self.decoder(encoding)
         # Loss
-        loss = total_loss(x, reconstruction, shape_stream_parts, appearance_stream_parts, coord, vector, self.device,
-                          self.L_mu, self.L_cov, self.scal)
+        loss = total_loss(x, reconstruction, shape_stream_parts, appearance_stream_parts, mu, coord, vector,
+                          self.device, self.L_mu, self.L_cov, self.scal, self.l_2_scal, self.l_2_threshold)
 
         if self.mode == 'predict':
             return x, reconstruction, mu, heat_map

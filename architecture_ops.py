@@ -105,15 +105,14 @@ class E(nn.Module):
         if self.sigma:
             if self.reconstr_dim == 128:
                 self.preprocess_sigma = nn.Sequential(Conv(3, 64, kernel_size=6, stride=2, bn=True, relu=True),
-                                                Residual(64, residual_dim)
-                                                )
+                                                      Residual(64, residual_dim)
+                                                      )
             elif self.reconstr_dim == 256:
                 self.preprocess_sigma = nn.Sequential(Conv(3, 64, kernel_size=6, stride=2, bn=True, relu=True),
-                                                Residual(64, 128),
-                                                nn.MaxPool2d(2, 2),
-                                                Residual(128, 128),
-                                                Residual(128, 256)
-                                                )
+                                                      Residual(64, 128),
+                                                      nn.MaxPool2d(2, 2),
+                                                      Residual(128, residual_dim),
+                                                      )
             self.map_transform = Conv(n_feature, residual_dim, 1, 1)    # channels for addition must be increased
         if not self.sigma:
             self.preprocess_alpha = Conv(2 * residual_dim, residual_dim, 1, 1, bn=True, relu=True)
