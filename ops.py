@@ -124,7 +124,7 @@ def feat_mu_to_enc(features, mu, L_inv, device, covariance, reconstr_dim, static
         part_depths = [nk, nk, nk, nk, 4, 2]
     elif reconstr_dim == 256:
         reconstruct_stages = [[256, 256], [128, 128], [64, 64], [32, 32], [16, 16], [8, 8], [4, 4]]
-        feat_map_depths = [[0, 0], [0, 0], [0, 0], [0, 0], [4, nk], [2, 4], [0, 2]]
+        feat_map_depths = [[0, 0], [0, 0], [0, 0], [0, 0], [4, nf], [2, 4], [0, 2]]
         part_depths = [nk, nk, nk, nk, nk, 4, 2]
 
     if static:
@@ -195,21 +195,20 @@ def total_loss(input, reconstr, sig_shape, sig_app, mu, coord, vector,
     # Equiv Loss
     sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, h, device=device)
     mu_1, L_inv1 = get_mu_and_prec(sig_app, device, scal)
-    #cov_1 = contract('bnij, bnjk -> bnik', L_inv1.transpose(2, 3), L_inv1)
-    cov_1 = get_covariance(sig_app)
+    #cov_1 = get_covariance(sig_app)
     mu_2, L_inv2 = get_mu_and_prec(sig_shape_trans, device, scal)
-    # cov_2 = contract('bnij, bnjk -> bnik', L_inv2.transpose(2, 3), L_inv2)
-    cov_2 = get_covariance(sig_shape_trans)
+    #cov_2 = get_covariance(sig_shape_trans)
     equiv_loss = torch.mean(torch.sum(L_mu * torch.norm(mu_1 - mu_2, p=2, dim=2) + \
-                           L_cov * torch.norm(cov_1 - cov_2, p=1, dim=[2, 3]), dim=1))
+                           L_cov * torch.norm(L_inv1 - L_inv2, p=1, dim=[2, 3]), dim=1))
 
     # Rec Loss
-    distance_metric = (input - reconstr)**2
+    distance_metric = torch.abs(input - reconstr)
     fold_img_squared, heat_mask_l2 = fold_img_with_mu(distance_metric, mu, l_2_scal, l_2_threshold, device)
-    rec_loss = torch.mean(torch.sum(fold_img_squared.reshape(bn, k, -1), dim=2), dim=1)
-
+    rec_loss = torch.mean(torch.sum(torch.sum(fold_img_squared.reshape(bn, k, -1), dim=2), dim=1))
+    # rec_loss = nn.BCELoss()(reconstr, input)
+    # rec_loss = nn.L1Loss()(reconstr, input)
     total_loss = rec_loss + equiv_loss
-    return rec_loss
+    return total_loss
 
 
 def count_parameters(model):

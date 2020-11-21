@@ -101,8 +101,6 @@ def load_images_from_folder():
         img = plt.imread(os.path.join(folder, filename))
         if img is not None:
             images.append(img)
-        if i == 550:
-            break
     return images
 
 

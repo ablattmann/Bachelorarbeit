@@ -1,16 +1,12 @@
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
-import kornia.augmentation as K
-from transformations import tps_parameters, make_input_tps_param, ThinPlateSpline
 
 
 class ImageDataset(Dataset):
-    def __init__(self, images, arg):
+    def __init__(self, images):
         super(ImageDataset, self).__init__()
         self.images = images
-        self.transforms = transforms.Compose([transforms.ToTensor(),
-                                              transforms.Normalize([0.5], [0.5])
-                                              ])
+        self.transforms = transforms.Compose([transforms.ToTensor()])
 
     def __len__(self):
         return len(self.images)

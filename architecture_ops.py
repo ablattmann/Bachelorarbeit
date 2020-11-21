@@ -98,7 +98,7 @@ class E(nn.Module):
         self.sigma = sigma
         self.reconstr_dim = reconstr_dim
         self.hg = Hourglass(depth, residual_dim)  # depth 4 has bottleneck of 4x4
-        self.dropout = nn.Dropout()
+        self.dropout = nn.Dropout(p=0.2)
         self.out = Conv(residual_dim, residual_dim, kernel_size=1, stride=1, bn=True, relu=True)
         self.feature = Conv(residual_dim, n_feature, kernel_size=1, stride=1, bn=False, relu=False)
         # Preprocessing
@@ -111,17 +111,19 @@ class E(nn.Module):
                 self.preprocess_sigma = nn.Sequential(Conv(3, 64, kernel_size=6, stride=2, bn=True, relu=True),
                                                       Residual(64, 128),
                                                       nn.MaxPool2d(2, 2),
-                                                      Residual(128, residual_dim),
+                                                      Residual(128, 128),
+                                                      Residual(128, residual_dim)
                                                       )
             self.map_transform = Conv(n_feature, residual_dim, 1, 1)    # channels for addition must be increased
         if not self.sigma:
-            self.preprocess_alpha = Conv(2 * residual_dim, residual_dim, 1, 1, bn=True, relu=True)
+            #self.preprocess_alpha = Conv(2 * residual_dim, residual_dim, 1, 1, bn=True, relu=True) # for stack
+            self.preprocess_alpha = Conv(residual_dim, residual_dim, 1, 1, bn=True, relu=True)
 
     def forward(self, x):
         if self.sigma:
             x = self.preprocess_sigma(x)
-        else:
-            x = self.preprocess_alpha(x) # Try for concatenate instead of sum
+        # else:
+        #     x = self.preprocess_alpha(x) # Try for concatenate instead of sum
         out = self.hg(x)
         out = self.dropout(out)
         out = self.out(out)
@@ -130,8 +132,8 @@ class E(nn.Module):
         if self.sigma:
             map_normalized = F.softmax(map.reshape(map.size(0), map.size(1), -1), dim=2).view_as(map)
             map_transformed = self.map_transform(map_normalized)
-            stack = torch.cat((map_transformed, x), dim=1) # Try for concatenate instead of sum
-            #stack = map_transformed + x
+            #stack = torch.cat((map_transformed, x), dim=1) # Try for concatenate instead of sum
+            stack = map_transformed + x
             return map_normalized, stack
         else:
             return map

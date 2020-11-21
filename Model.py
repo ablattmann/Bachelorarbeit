@@ -47,7 +47,7 @@ class Model(nn.Module):
                           self.device, self.L_mu, self.L_cov, self.scal, self.l_2_scal, self.l_2_threshold)
 
         if self.mode == 'predict':
-            return x, reconstruction, mu, heat_map
+            return x, reconstruction, mu, shape_stream_parts, heat_map
 
         elif self.mode == 'train':
             return reconstruction, loss

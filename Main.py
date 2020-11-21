@@ -1,5 +1,4 @@
 import torch
-import matplotlib.pyplot as plt
 from DataLoader import ImageDataset, ImageDataset2, DataLoader
 from utils import save_model, load_model, convert_image_np, batch_colour_map, load_images_from_folder, plot_tensor
 from Model import Model, Model2
@@ -19,6 +18,7 @@ def main2(arg):
     name = arg.name
     load_from_ckpt = arg.load_from_ckpt
     lr = arg.lr
+    weight_decay = arg.weight_decay
     epochs = arg.epochs
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     arg.device = device
@@ -45,7 +45,7 @@ def main2(arg):
         model = Model2(arg).to(device)
         if load_from_ckpt == True:
             model = load_model(model, model_save_dir).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
         # Make Training
         for epoch in range(epochs):
@@ -80,7 +80,7 @@ def main2(arg):
             # Track Progress
             if epoch % 5 == 0:
                 model.mode = 'predict'
-                image, reconstruction, mu, shape_stream_parts = model(original)
+                image, reconstruction, mu, shape_stream_parts, heat_map = model(original)
                 for i in range(len(image)):
                     save_image(image[i], model_save_dir + '/image/' + str(i) + '_' + str(epoch) + '.png')
                     save_image(reconstruction[i], model_save_dir + '/image/' + str(i) + '_' + str(epoch) + '.png')
@@ -117,24 +117,25 @@ def main(arg):
             os.makedirs(model_save_dir + '/reconstruction')
             os.makedirs(model_save_dir + '/mu')
             os.makedirs(model_save_dir + '/parts')
+            os.makedirs(model_save_dir + '/heat_map')
 
         # Save Hyperparameters
-        #write_hyperparameters(arg.toDict(), model_save_dir)
+        write_hyperparameters(arg.toDict(), model_save_dir)
 
-        # Load Datasets
-        data = load_images_from_folder()
-        train_data = np.array(data[:500])
-        train_dataset = ImageDataset(train_data, arg)
-        test_data = np.array(data[-50:])
-        test_dataset = ImageDataset(test_data, arg)
-
-        # Prepare Dataloader & Instances
-        train_loader = DataLoader(train_dataset, batch_size=bn, shuffle=True)
-        test_loader = DataLoader(test_dataset, batch_size=bn)
+        # Define Model & Optimizer
         model = Model(arg).to(device)
         if load_from_ckpt == True:
             model = load_model(model, model_save_dir).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+        # Load Datasets and DataLoader
+        data = load_images_from_folder()
+        train_data = np.array(data[:-1000])
+        train_dataset = ImageDataset(train_data)
+        test_data = np.array(data[-1000:])
+        test_dataset = ImageDataset(test_data)
+        train_loader = DataLoader(train_dataset, batch_size=bn, shuffle=True, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=bn, num_workers=4)
 
         # Make Training
         for epoch in range(epochs+1):
@@ -144,12 +145,12 @@ def main(arg):
             for step, original in enumerate(train_loader):
                 original = original.to(device)
                 # Make transformations
-                tps_param_dic = tps_parameters(bn, arg.scal, arg.tps_scal, arg.rot_scal, arg.off_scal,
-                                               arg.scal_var, arg.augm_scal)
+                tps_param_dic = tps_parameters(original.shape[0], arg.scal, arg.tps_scal, arg.rot_scal,
+                                               arg.off_scal, arg.scal_var, arg.augm_scal)
                 coord, vector = make_input_tps_param(tps_param_dic)
                 coord, vector = coord.to(device), vector.to(device)
                 image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
-                                                             original.shape[3], device)
+                                                     original.shape[3], device)
                 image_appearance_t = K.ColorJitter(arg.brightness, arg.contrast, arg.saturation, arg.hue)(original)
                 # Zero out gradients
                 optimizer.zero_grad()
@@ -167,7 +168,7 @@ def main(arg):
             for step, original in enumerate(test_loader):
                 with torch.no_grad():
                     original = original.to(device)
-                    tps_param_dic = tps_parameters(bn, arg.scal, arg.tps_scal, arg.rot_scal, arg.off_scal,
+                    tps_param_dic = tps_parameters(original.shape[0], arg.scal, arg.tps_scal, arg.rot_scal, arg.off_scal,
                                                    arg.scal_var, arg.augm_scal)
                     coord, vector = make_input_tps_param(tps_param_dic)
                     coord, vector = coord.to(device), vector.to(device)
@@ -182,13 +183,18 @@ def main(arg):
             print(f'Epoch: {epoch}, Test Loss: {torch.mean(loss)}')
 
             # Track Progress
-            if epoch % 2 == 0:
+            if epoch % 5 == 0:
                 model.mode = 'predict'
-                image, reconstruction, mu, shape_stream_parts = model(original, image_spatial_t,
+                image, reconstruction, mu, shape_stream_parts, heat_map = model(original, image_spatial_t,
                                                                       image_appearance_t, coord, vector)
                 for i in range(len(image)):
-                    save_image(image[i], model_save_dir + '/image/' + str(i) + '_' + str(epoch) + '.png')
+                    if epoch == 0:
+                        save_image(image[i], model_save_dir + '/image/' + str(i) + '_' + str(epoch) + '.png')
                     save_image(reconstruction[i], model_save_dir + '/reconstruction/' + str(i) + '_' + str(epoch) + '.png')
+                    # save_image(shape_stream_parts[0][0],
+                    #            model_save_dir + '/parts/' + str(i) + '_' + str(epoch) + '.png')
+                    # save_image(heat_map[0][0],
+                    #            model_save_dir + '/heat_map/' + str(i) + '_' + str(epoch) + '.png')
                 save_model(model, model_save_dir)
 
 
