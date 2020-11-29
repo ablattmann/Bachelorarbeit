@@ -80,7 +80,7 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
         x = x.to(dtype=torch.float32)
         rep = torch.ones(n_repeats, dtype=torch.float32).unsqueeze(0).to(device)
         x = torch.matmul(torch.reshape(x, (-1, 1)), rep)
-        return torch.reshape(x, [-1])
+        return torch.reshape(x, [num_batch, -1])
 
     def _interpolate(im, y, x):
         y = y.to(dtype=torch.float32).to(device)
@@ -94,8 +94,8 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
         y = (y + 1) * height_f / 2.0
         x = (x + 1) * width_f / 2.0
 
-        y = torch.reshape(y, [-1])
-        x = torch.reshape(x, [-1])
+        y = torch.reshape(y, [num_batch, -1])
+        x = torch.reshape(x, [num_batch, -1])
 
         y0 = torch.floor(y).to(dtype=torch.int32)
         y1 = y0 + 1
@@ -110,30 +110,33 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
         base = _repeat(torch.arange(num_batch).to(device) * width * height, out_height * out_width).to(device)
         base_y0 = base + y0 * width
         base_y1 = base + y1 * width
-        idx_a = (base_y0 + x0).to(dtype=torch.int64)
-        idx_b = (base_y1 + x0).to(dtype=torch.int64)
-        idx_c = (base_y0 + x1).to(dtype=torch.int64)
-        idx_d = (base_y1 + x1).to(dtype=torch.int64)
+        idx_a = (base_y0 + x0).to(dtype=torch.int64)[0]
+        idx_b = (base_y1 + x0).to(dtype=torch.int64)[0]
+        idx_c = (base_y0 + x1).to(dtype=torch.int64)[0]
+        idx_d = (base_y1 + x1).to(dtype=torch.int64)[0]
 
         # use indices to lookup pixels in the flat image and restore
         # channels dim
-        im_flat = torch.reshape(im, [channels, -1])
+        im_flat = torch.reshape(im, [num_batch, channels, -1])
         im_flat = im_flat.to(dtype=torch.float32)
-        Ia = torch.index_select(im_flat, 1, idx_a)
-        Ib = torch.index_select(im_flat, 1, idx_b)
-        Ic = torch.index_select(im_flat, 1, idx_c)
-        Id = torch.index_select(im_flat, 1, idx_d)
+        Ia = im_flat[:, :, idx_a]
+        Ib = im_flat[:, :, idx_b]
+        Ic = im_flat[:, :, idx_c]
+        Id = im_flat[:, :, idx_d]
+
+
         # and finally calculate interpolated values
         x0_f = x0.to(dtype=torch.float32).to(device)
         x1_f = x1.to(dtype=torch.float32).to(device)
         y0_f = y0.to(dtype=torch.float32).to(device)
         y1_f = y1.to(dtype=torch.float32).to(device)
 
-        wa = ((x1_f - x) * (y1_f - y)).unsqueeze(0)
-        wb = ((x1_f - x) * (y - y0_f)).unsqueeze(0)
-        wc = ((x - x0_f) * (y1_f - y)).unsqueeze(0)
-        wd = ((x - x0_f) * (y - y0_f)).unsqueeze(0)
+        wa = ((x1_f - x) * (y1_f - y)).unsqueeze(1)
+        wb = ((x1_f - x) * (y - y0_f)).unsqueeze(1)
+        wc = ((x - x0_f) * (y1_f - y)).unsqueeze(1)
+        wd = ((x - x0_f) * (y - y0_f)).unsqueeze(1)
         output = wa * Ia + wb * Ib + wc * Ic + wd * Id
+
         return output
 
     def _meshgrid(height, width, coord):
@@ -141,15 +144,13 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
         x_t = torch.reshape(torch.linspace(- 1., 1., width), [1, width]).repeat(height, 1).to(device)
         y_t = torch.reshape(torch.linspace(- 1., 1., height), [height, 1]).repeat(1, width).to(device)
 
-        x_t_flat = torch.reshape(x_t, (1, 1, -1))
-        y_t_flat = torch.reshape(y_t, (1, 1, -1))
+        x_t_flat_g = torch.reshape(x_t, (1, 1, -1)).repeat(num_batch, 1, 1)
+        y_t_flat_g = torch.reshape(y_t, (1, 1, -1)).repeat(num_batch, 1, 1)
 
         px = coord[:, :, 0].unsqueeze(2)  # [bn, pn, 1]
         py = coord[:, :, 1].unsqueeze(2)  # [bn, pn, 1]
-        d2 = torch.square(x_t_flat - px) + torch.square(y_t_flat - py)
+        d2 = torch.square(x_t_flat_g - px) + torch.square(y_t_flat_g - py)
         r = d2 * torch.log(d2 + 1e-6)  # [bn, pn, h*w]
-        x_t_flat_g = x_t_flat.repeat(num_batch, 1, 1) # [bn, 1, h*w]
-        y_t_flat_g = y_t_flat.repeat(num_batch, 1, 1)  # [bn, 1, h*w]
         ones = torch.ones_like(x_t_flat_g)  # [bn, 1, h*w]
 
         grid = torch.cat((ones, x_t_flat_g, y_t_flat_g, r), 1)  # [bn, 3+pn, h*w]
@@ -208,4 +209,10 @@ def ThinPlateSpline(U, coord, vector, out_size, device, move=None, scal=None):
     y = torch.reshape(y, [num_batch, 1, out_height, out_width])
     x = torch.reshape(x, [num_batch, 1, out_height, out_width])
     t_arr = torch.cat([y, x], 1)
+
+    # Normalize
+    # min_val = output.min(-1)[0].min(-1)[0]
+    # max_val = output.max(-1)[0].max(-1)[0]
+    # output = (output - min_val[:, :, None, None]) / (max_val[:, :, None, None] - min_val[:, :, None, None])
+
     return output, t_arr

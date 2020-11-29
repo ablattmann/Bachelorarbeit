@@ -6,11 +6,20 @@ import matplotlib.pyplot as plt
 import os
 from skimage.transform import pyramid_reduce
 from opt_einsum import contract
+from torchvision.utils import save_image
 
 
-def preprocess_image(image):
-    image = image / 255.
-    return image
+def convert_image_np(inp):
+    """Convert a Tensor to numpy image."""
+    inp = inp.cpu().detach().numpy().transpose((1, 2, 0))
+    inp = np.clip(inp, 0, 1)
+    return inp
+
+
+def plot_tensor(tensor):
+    np_tensor = convert_image_np(tensor)
+    plt.imshow(np_tensor)
+    plt.show()
 
 
 def batch_colour_map(heat_map, device):
@@ -21,6 +30,12 @@ def batch_colour_map(heat_map, device):
     colour = torch.tensor(colour, dtype=torch.float).to(device)
     colour_map = contract('bkij, kl -> blij', heat_map, colour)
     return colour_map
+
+
+def save_heat_map(heat_map, directory):
+    for i, part in enumerate(heat_map):
+        part = part.unsqueeze(0)
+        save_image(part, directory + '/predictions/colourmap_' + str(i) + '.png')
 
 
 def np_batch_colour_map(heat_map, device):
@@ -45,10 +60,10 @@ def identify_parts(image, raw, n_parts, version):
         plt.savefig(fname, bbox_inches='tight')
 
 
-def save(img, mu, counter):
+def save(img, mu, counter, model_save_dir):
     batch_size, out_shape = img.shape[0], img.shape[1:3]
     marker_list = ["o", "v", "s", "|", "_"]
-    directory = os.path.join('../images/landmarks/')
+    directory = os.path.join(model_save_dir + '/predictions/landmarks/')
     if not os.path.exists(directory):
         os.makedirs(directory)
     s = out_shape[0] // 8
@@ -78,13 +93,6 @@ def part_to_color_map(encoding_list, part_depths, size, device, square=True):
     return color_part_map
 
 
-def convert_image_np(inp):
-    """Convert a Tensor to numpy image."""
-    inp = inp.cpu().detach().numpy().transpose((1, 2, 0))
-    inp = np.clip(inp, 0, 1)
-    return inp
-
-
 def save_model(model, model_save_dir):
     torch.save(model.state_dict(), model_save_dir + '/parameters')
 
@@ -94,17 +102,14 @@ def load_model(model, model_save_dir):
     return model
 
 
-def load_images_from_folder():
+def load_images_from_folder(stop=False):
     folder = "/export/scratch2/compvis_datasets/deepfashion_vunet/train/"
     images = []
     for i, filename in enumerate(os.listdir(folder)):
         img = plt.imread(os.path.join(folder, filename))
         if img is not None:
             images.append(img)
+        if stop == True:
+            if i == 3:
+                break
     return images
-
-
-def plot_tensor(tensor):
-    np_tensor = convert_image_np(tensor)
-    plt.imshow(np_tensor)
-    plt.show()

@@ -9,5 +9,3 @@ def plot_samples(name):
                                  map_location=torch.device('cpu'))
         plot_tensor(torch_image[0])
         print(image)
-
-plot_samples('10epoch_64f_recloss_0_0001')

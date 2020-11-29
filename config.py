@@ -3,11 +3,11 @@ import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--name', default="10epoch_128f_recloss_0_00005lr", type=str,
-                        help="name of the experiment", required=True)
-    parser.add_argument('--gpu', type=int, required=True)
+    parser.add_argument('--name', default="trial23", type=str,
+                        help="name of the experiment", required=False)
+    parser.add_argument('--gpu', default=0, type=int, required=False)
     # run setting
-    parser.add_argument('--mode', default='train', choices=['train', 'predict'])
+    parser.add_argument('--mode', default='predict', choices=['train', 'predict'])
     parser.add_argument('--load_from_ckpt', default=False, type=bool)
 
     # dataset folder
@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--depth_a', default=1, type=int, help="depth of appearance hourglass")
 
     # loss multiplication constants
-    parser.add_argument('--lr',  default=0.001, type=float, help="learning rate of network", required=True)
+    parser.add_argument('--lr',  default=0.001, type=float, help="learning rate of network")
     parser.add_argument('--weight_decay', default=5e-4, type=float, help="weight_decay")
     parser.add_argument('--L_mu', default=5., type=float, help="")
     parser.add_argument('--L_cov', default=0.1, type=float, help="")

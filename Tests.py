@@ -68,13 +68,14 @@ def make_input_tps_param(tps_param, move_point=None, scal_point=None):
     return coord, t_vector
 
 
-def ThinPlateSpline(U, coord, vector, out_size, n_c, move=None, scal=None):
+def ThinPlateSpline1(U, coord, vector, out_size, n_c, move=None, scal=None):
     '''
     U: Original Image
 
     '''
     coord = coord[:, :, ::-1]
     vector = vector[:, :, ::-1]
+
 
     num_batch = tf.shape(U)[0]
     height = tf.shape(U)[1]
@@ -94,6 +95,7 @@ def ThinPlateSpline(U, coord, vector, out_size, n_c, move=None, scal=None):
 
     def _interpolate(im, y, x):
         # constants
+        print(y.shape)
         y = tf.cast(y, 'float32')
         x = tf.cast(x, 'float32')
 
@@ -287,52 +289,51 @@ def AbsDetJacobian(batch_meshgrid):
 
     return Det
 
+if __name__ == '__main__':
+    image1 = tf.tile(tf.expand_dims(tf.convert_to_tensor(plt.imread('Test.png')), axis=0), [2, 1, 1, 1])
+    bn = 2
+    tps_param_dic = tps_parameters(1 * bn)
+    tps_param_dic.augm_scal = 1.
+    coord, vector = make_input_tps_param(tps_param_dic)
+    t_images1, t_mesh = ThinPlateSpline1(image1, coord, vector, 128, 3)
+    aorg1 = t_images1[0]
+    aorg2 = t_images1[1]
+    plt.imshow(aorg1)
+    plt.show()
+    plt.imshow(aorg2)
+    plt.show()
+    image_in, image_rec = prepare_pairs(t_images1, 128)
+    original = image_rec.numpy()
+    org1 = original[0]
+    org2 = original[1]
+    rec1 = image_rec[0]
+    rec2 = image_rec[1]
+    # plt.imshow(org1)
+    # plt.show()
+    # plt.imshow(org2)
+    # plt.show()
+    # plt.imshow(rec1)
+    # plt.show()
+    # plt.imshow(rec2)
+    # plt.show()
+    transform_mesh = tf.image.resize(t_mesh, size=(128, 128))
+    volume_mesh = AbsDetJacobian(transform_mesh)
 
-image1 = tf.tile(tf.expand_dims(tf.convert_to_tensor(plt.imread('Test.png')), axis=0), [2, 1, 1, 1])
-bn = 2
-tps_param_dic = tps_parameters(1 * bn)
-tps_param_dic.augm_scal = 1.
-coord, vector = make_input_tps_param(tps_param_dic)
-t_images1, t_mesh = ThinPlateSpline(image1, coord, vector, 128, 3)
-aorg1 = t_images1[0]
-aorg2 = t_images1[1]
-# plt.imshow(aorg1)
-# plt.show()
-# plt.imshow(aorg2)
-# plt.show()
-image_in, image_rec = prepare_pairs(t_images1, 128)
-original = image_rec.numpy()
-org1 = original[0]
-org2 = original[1]
-rec1 = image_rec[0]
-rec2 = image_rec[1]
-plt.imshow(org1)
-plt.show()
-plt.imshow(org2)
-plt.show()
-plt.imshow(rec1)
-plt.show()
-plt.imshow(rec2)
-plt.show()
-transform_mesh = tf.image.resize(t_mesh, size=(128, 128))
-volume_mesh = AbsDetJacobian(transform_mesh)
 
+    # Tensorflow
+    part_maps = tf.tile(tf.expand_dims(tf.convert_to_tensor(plt.imread('Test.png')), axis=0), [2, 1, 1, 1])
+    integrant = tf.squeeze(tf.expand_dims(part_maps, axis=-1) * tf.expand_dims(volume_mesh, axis=-1))
+    integrant = integrant / tf.reduce_sum(integrant, axis=[1, 2],
+                                               keepdims=True)
 
-# Tensorflow
-part_maps = tf.tile(tf.expand_dims(tf.convert_to_tensor(plt.imread('Test.png')), axis=0), [2, 1, 1, 1])
-integrant = tf.squeeze(tf.expand_dims(part_maps, axis=-1) * tf.expand_dims(volume_mesh, axis=-1))
-integrant = integrant / tf.reduce_sum(integrant, axis=[1, 2],
-                                           keepdims=True)
+    mu_t = tf.einsum('aijk,aijl->akl', integrant, transform_mesh)
+    transform_mesh_out_prod = tf.einsum('aijm,aijn->aijmn', transform_mesh, transform_mesh)
+    mu_out_prod = tf.einsum('akm,akn->akmn', mu_t, mu_t)
+    stddev_t = tf.einsum('aijk,aijmn->akmn', integrant, transform_mesh_out_prod) - mu_out_prod
 
-mu_t = tf.einsum('aijk,aijl->akl', integrant, transform_mesh)
-transform_mesh_out_prod = tf.einsum('aijm,aijn->aijmn', transform_mesh, transform_mesh)
-mu_out_prod = tf.einsum('akm,akn->akmn', mu_t, mu_t)
-stddev_t = tf.einsum('aijk,aijmn->akmn', integrant, transform_mesh_out_prod) - mu_out_prod
-
-# PyTorch
-image = plt.imread('Test.png')
-image = torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0)
-mu, L_inv = get_mu_and_prec(image, device='cpu', scal=1)
-mu = mu / torch.sum(mu, (1, 2))
-print(mu.shape)
+    # PyTorch
+    image = plt.imread('Test.png')
+    image = torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0)
+    mu, L_inv = get_mu_and_prec(image, device='cpu', scal=1)
+    mu = mu / torch.sum(mu, (1, 2))
 
