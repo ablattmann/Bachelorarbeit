@@ -14,13 +14,18 @@ def create_dir_structure(config):
         structure = {subdir: path.join(os.environ["DATAPATH"],structure[subdir]) for subdir in structure}
     return structure
 
-def load_parameters(config_name, restart,debug):
+def load_parameters(config_name, restart,debug,input_dir=None, output_dir=None):
     with open(config_name,"r") as f:
         cdict = yaml.load(f,Loader=yaml.FullLoader)
     # if we just want to test if it runs
     cdict["debug"] = debug
     if debug:
         cdict["name"] = "debug"
+    if output_dir is not None:
+        cdict["base_dir"] = output_dir
+    if input_dir is not None:
+        cdict["datapath"] = input_dir
+
     dir_structure = create_dir_structure(cdict)
     saved_config = path.join(dir_structure["config"], "config.yaml")
     if restart:
@@ -65,13 +70,16 @@ if __name__ == '__main__':
     parser.add_argument("--gpu",default=0, type=int,help="GPU to use.")
     parser.add_argument("--debug","-d",default=False, action="store_true", help="Whether or not to run the script in debug mode.")
     parser.add_argument("-m","--mode",default="train",type=str,choices=["train","test"],help="Whether to start in train or infer mode?")
+    parser.add_argument("--input",type=str, default=None, help="The input-, or data-path.")
+    parser.add_argument("--output", type=str, default=None, help="The path were the output should be stored, including logs etc.")
+
 
     args = parser.parse_args()
 
     args.debug = args.debug and (args.mode == "train")
 
 
-    config, structure, restart = load_parameters(args.config, args.restart or args.mode == "test",args.debug)
+    config, structure, restart = load_parameters(args.config, args.restart or args.mode == "test",args.debug,args.input, args.output)
     config["restart"] = restart
     config["mode"] = args.mode
 
