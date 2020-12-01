@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from architecture_ops import E, Decoder
-from ops import feat_mu_to_enc, get_local_part_appearances, get_mu_and_prec, total_loss, get_heat_map, prepare_pairs, AbsDetJacobian
-from transformations import ThinPlateSpline, tps_parameters, make_input_tps_param
+from software.architecture_ops import E, Decoder
+from software.ops import feat_mu_to_enc, get_local_part_appearances, get_mu_and_prec, get_heat_map, prepare_pairs, AbsDetJacobian
+from software.transformations import ThinPlateSpline, tps_parameters, make_input_tps_param
 import torch.nn.functional as F
 from opt_einsum import contract
 

@@ -5,7 +5,7 @@ import yaml
 import os
 from dotmap import DotMap
 
-from experiment import PartBased
+from software.experiment import PartBased
 
 def create_dir_structure(config):
     subdirs = ["ckpt", "config", "generated", "log"]

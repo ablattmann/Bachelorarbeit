@@ -6,7 +6,7 @@ import pandas as pd
 from os import path
 import cv2
 
-from utils import LoggingParent
+from software.utils import LoggingParent
 
 
 class BaseDataset(Dataset,LoggingParent):

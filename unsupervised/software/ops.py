@@ -1,10 +1,13 @@
 import torch
 import torch.nn as nn
-from transformations import ThinPlateSpline
+from torchvision.models import vgg19
 import kornia.augmentation as K
 import torch.nn.functional as F
 from opt_einsum import contract
+from collections import namedtuple
 
+from software.transformations import ThinPlateSpline
+from software.utils import get_member
 
 def get_local_part_appearances(f, sig):
     alpha = contract('bfij, bkij -> bkf', f, sig)
@@ -190,7 +193,7 @@ def feat_mu_to_enc(features, mu, L_inv, device, covariance, reconstr_dim, static
 
 
 def total_loss(input, reconstr, sig_shape, sig_app, mu, coord, vector,
-               device, L_mu, L_cov, scal, l_2_scal, l_2_threshold):
+               device, L_mu, L_cov, scal, l_2_scal, l_2_threshold, vgg=None):
     bn, k, h, w = sig_shape.shape
     # Equiv Loss
     sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, h, device=device)
@@ -202,9 +205,12 @@ def total_loss(input, reconstr, sig_shape, sig_app, mu, coord, vector,
                            L_cov * torch.norm(L_inv1 - L_inv2, p=1, dim=[2, 3]), dim=1))
 
     # Rec Loss
-    distance_metric = torch.abs(input - reconstr)
-    fold_img_squared, heat_mask_l2 = fold_img_with_mu(distance_metric, mu, l_2_scal, l_2_threshold, device)
-    rec_loss = torch.mean(torch.sum(torch.sum(fold_img_squared.reshape(bn, k, -1), dim=2), dim=1))
+    if vgg is None:
+        distance_metric = torch.abs(input - reconstr)
+        fold_img_squared, heat_mask_l2 = fold_img_with_mu(distance_metric, mu, l_2_scal, l_2_threshold, device)
+        rec_loss = torch.mean(torch.sum(torch.sum(fold_img_squared.reshape(bn, k, -1), dim=2), dim=1))
+    else:
+        rec_loss = vgg_loss(vgg,input,reconstr)
     # rec_loss = nn.BCELoss()(reconstr, input)
     # rec_loss = nn.L1Loss()(reconstr, input)
     total_loss = rec_loss + equiv_loss
@@ -323,3 +329,109 @@ def fold_img_with_mu(img, mu, scale, threshold, device, normalize=True):
         folded_img = contract('bcij,bij->bcij', img, heat_scal)
 
     return folded_img, heat_scal.unsqueeze(-1)
+
+class PerceptualVGG(nn.Module):
+    def __init__(self, weights=None):
+        super().__init__()
+        self.vgg =  vgg19(pretrained=True)
+        self.vgg.eval()
+
+        self.vgg_layers = self.vgg.features
+
+
+        self.register_buffer(
+            "mean",
+            torch.tensor([0.485, 0.456, 0.406], dtype=torch.float)
+            .unsqueeze(dim=0)
+            .unsqueeze(dim=-1)
+            .unsqueeze(dim=-1),
+        )
+
+        self.register_buffer(
+            "std",
+            torch.tensor([0.229, 0.224, 0.225], dtype=torch.float)
+            .unsqueeze(dim=0)
+            .unsqueeze(dim=-1)
+            .unsqueeze(dim=-1),
+        )
+        self.target_layers = {
+            "3": "relu1_2",
+            "8": "relu2_2",
+            "13": "relu3_2",
+            "15" : "relu3_3",
+            "22": "relu4_2",
+            "24" : "relu4_3",
+            "31": "relu5_2",
+        }
+
+        if weights is None:
+            self.loss_weights = {"input":1., "relu1_2": 1.,"relu2_2": 1.,"relu3_2": 1.,"relu3_3": 1.,"relu4_2": 1.,"relu4_3": 1.,"relu5_2": 1. }
+        else:
+            assert isinstance(weights, dict) and list(weights.keys()) == list(self.target_layers.keys()), f"The weights passed to PerceptualVGG have to be a dict with the keys {list(self.target_layers.keys())}"
+            self.loss_weights = weights
+
+    def forward(self, x):
+        # IMPORTANT: Input is assumed to be in range [0,1] here.
+        #x = (x + 1.0) / 2.0
+        x = (x - self.mean) / self.std
+
+
+        # add also common reconstruction loss in pixel space
+        out = {"input": x}
+
+        for name, submodule in self.vgg_layers._modules.items():
+            # x = submodule(x)
+            if name in self.target_layers:
+                x = submodule(x)
+                out[self.target_layers[name]] = x
+            else:
+                x = submodule(x)
+
+        return out
+
+
+VGGOutput = namedtuple(
+    "VGGOutput",
+    ["input", "relu1_2", "relu2_2", "relu3_2", "relu4_2", "relu5_2"],
+)
+
+def vgg_loss(custom_vgg:PerceptualVGG, target, pred, weights=None):
+    """
+    Implements a vgg based perceptual loss, as extensively used for image/video generation tasks
+    :param custom_vgg: The vgg feature extractor for the perceptual loss, definition see above
+    :param target:
+    :param pred:
+    :return:
+    """
+    target_feats = custom_vgg(target)
+    pred_feats = custom_vgg(pred)
+    target_feats = VGGOutput(**{key: target_feats[key] for key in VGGOutput._fields})
+    pred_feats = VGGOutput(**{key: pred_feats[key] for key in VGGOutput._fields})
+
+    names = list(pred_feats._asdict().keys())
+    if weights is None:
+        losses = {}
+
+        for i, (tf, pf) in enumerate(zip(target_feats, pred_feats)):
+            loss = get_member(custom_vgg,"loss_weights")[VGGOutput._fields[i]] * torch.mean(
+                torch.abs(tf - pf)
+            ).unsqueeze(dim=-1)
+            losses.update({names[i]: loss})
+    else:
+
+        losses = {
+            names[0]: get_member(custom_vgg,"loss_weights")[VGGOutput._fields[0]]
+            * torch.mean(weights * torch.abs(target_feats[0] - pred_feats[0]))
+            .unsqueeze(dim=-1)
+            .to(torch.float)
+        }
+
+        for i, (tf, pf) in enumerate(zip(target_feats[1:], pred_feats[1:])):
+            loss = get_member(custom_vgg,"loss_weights")[i + 1] * torch.mean(
+                torch.abs(tf - pf)
+            ).unsqueeze(dim=-1)
+
+            losses.update({names[i + 1]: loss})
+
+    out_loss = torch.stack([losses[key] for key in losses],dim=0,).mean()
+    return out_loss

@@ -12,15 +12,13 @@ from ignite.metrics import Average
 import kornia.augmentation as K
 import wandb
 
-from transformations import tps_parameters, make_input_tps_param, ThinPlateSpline
-from utils import save_model, load_model, convert_image_np, batch_colour_map, load_images_from_folder, plot_tensor, \
-                  save, save_heat_map
-from model import Model, Model2
-from dataset import get_dataset
-from utils import LoggingParent
-from ops import total_loss
-from metrics import ssim,psnr
-from visualize import make_img_grid
+from software.transformations import tps_parameters, make_input_tps_param, ThinPlateSpline
+from software.model import Model
+from software.dataset import get_dataset
+from software.utils import LoggingParent
+from software.ops import total_loss, PerceptualVGG
+from software.metrics import ssim,psnr
+from software.visualize import make_img_grid
 
 
 WANDB_DISABLE_CODE = True
@@ -55,6 +53,8 @@ class PartBased(LoggingParent):
         torch.manual_seed(config["seed"])
         rng = np.random.RandomState(config["seed"])
 
+        self.perc_loss = self.config.vgg_loss if hasattr(self.config,"vgg_loss") else False
+
         if self.config.mode == "train":
             wandb.init(
                 dir=self.dirs["log"],
@@ -74,7 +74,7 @@ class PartBased(LoggingParent):
 
         if name is None:
             if len(os.listdir(dir)) > 0:
-                ckpts = glob(path.join(dir,"*.pt"))
+                ckpts = glob(path.join(dir,"*.pth"))
 
                 # load latest stored checkpoint
                 ckpts = [ckpt for ckpt in ckpts if key in ckpt.split("/")[-1]]
@@ -194,7 +194,7 @@ class PartBased(LoggingParent):
         epochs = self.config.epochs
         wd = self.config.weight_decay
 
-        if self.config["general"]["restart"] and not self.is_debug:
+        if self.config.restart and not self.is_debug:
             mod_ckpt, op_ckpt = self._load_ckpt("reg_ckpt")
         else:
             mod_ckpt = op_ckpt = None
@@ -234,6 +234,12 @@ class PartBased(LoggingParent):
             self.logger.info("Load state_dict of optimizer.")
             optimizer.load_state_dict(op_ckpt)
 
+        if self.perc_loss:
+            self.vgg = PerceptualVGG()
+            self.vgg.cuda(self.device)
+        else:
+            self.vgg = None
+
         n_epoch_train = self.config.epochs
         start_it = 0
         start_epoch = 0
@@ -261,7 +267,7 @@ class PartBased(LoggingParent):
 
             loss, rec_loss, equiv_loss = total_loss(original, rec, ssp, asp, mu, coord, vector,
                                                   self.device, self.config.L_mu, self.config.L_cov,
-                                                  self.config.scal, self.config.l_2_scal, self.config.l_2_threshold)
+                                                  self.config.scal, self.config.l_2_scal, self.config.l_2_threshold, self.vgg)
 
 
             # fixme compute keypoint metrics if available
@@ -319,7 +325,8 @@ class PartBased(LoggingParent):
 
                 rec, ssp, asp, mu, heat_map = model(original, image_spatial_t, image_appearance_t, coord, vector)
 
-            img_grid = make_img_grid(image_appearance_t, image_spatial_t, rec, original, n_logged=6)
+            img_grid = make_img_grid(image_appearance_t, image_spatial_t, rec, original,mus=mu, n_logged=6)
+
 
             wandb.log({"Evaluation image logs": wandb.Image(img_grid, caption=f"Image logs on test set.")})
 
@@ -368,7 +375,7 @@ class PartBased(LoggingParent):
 
                 rec, ssp, asp, mu, heat_map = model(original, image_spatial_t, image_appearance_t, coord, vector)
 
-            img_grid = make_img_grid(image_appearance_t,image_spatial_t,rec,original,n_logged=6)
+            img_grid = make_img_grid(image_appearance_t,image_spatial_t,rec,original, mus=mu, n_logged=6)
 
             wandb.log({"Training image logs": wandb.Image(img_grid, caption=f"Image logs after {it} train steps.")})
 

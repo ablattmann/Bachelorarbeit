@@ -10,11 +10,12 @@ n_workers: 20
 
 # options
 covariance: True
-epochs: 20
+epochs: 100
 reconstr_dim: 256
+vgg_loss: True
 
 #modes
-bn: 12
+bn: 10
 n_parts: 16
 n_features: 64
 n_c: 3
@@ -27,6 +28,7 @@ lr: 0.001
 weight_decay: 0.0005
 L_mu: 5.
 L_cov: 0.1
+w_perc: 0.1
 
 # tps
 l_2_scal: 0.1

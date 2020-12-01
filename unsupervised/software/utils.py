@@ -153,3 +153,11 @@ class LoggingParent:
         cls = str(self.__class__)[8:-2]
         cls = str(cls).replace("__main__.", "").split(".")[-1]
         self.logger = get_logger(f"{file}.{cls}")
+
+def get_member(model, name):
+    if isinstance(model, torch.nn.DataParallel):
+        module = model.module
+    else:
+        module = model
+
+    return getattr(module, name)
