@@ -7,7 +7,7 @@ def parse_args():
                         help="name of the experiment", required=False)
     parser.add_argument('--gpu', default=0, type=int, required=False)
     # run setting
-    parser.add_argument('--mode', default='predict', choices=['train', 'predict'])
+    parser.add_argument('--mode', default='train', choices=['train', 'predict'])
     parser.add_argument('--load_from_ckpt', default=False, type=bool)
 
     # dataset folder

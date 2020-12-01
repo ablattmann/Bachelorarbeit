@@ -10,11 +10,10 @@ class Model(nn.Module):
     def __init__(self, arg):
         super(Model, self).__init__()
         self.arg = arg
-        self.mode = arg.mode
         self.reconstr_dim = arg.reconstr_dim
         self.n_parts = arg.n_parts
         self.n_features = arg.n_features
-        self.device = arg.device
+        self.device = arg.gpu
         self.depth_s = arg.depth_s
         self.depth_a = arg.depth_a
         self.residual_dim = arg.residual_dim
@@ -43,14 +42,9 @@ class Model(nn.Module):
         encoding = feat_mu_to_enc(local_part_appearances, mu, L_inv, self.device, self.covariance, self.reconstr_dim)
         reconstruction = self.decoder(encoding)
         # Loss
-        loss = total_loss(x, reconstruction, shape_stream_parts, appearance_stream_parts, mu, coord, vector,
-                          self.device, self.L_mu, self.L_cov, self.scal, self.l_2_scal, self.l_2_threshold)
 
-        if self.mode == 'predict':
-            return x, reconstruction, mu, shape_stream_parts, heat_map
+        return reconstruction, shape_stream_parts, appearance_stream_parts, mu, heat_map
 
-        elif self.mode == 'train':
-            return reconstruction, loss
 
 
 class Model2(nn.Module):
@@ -112,11 +106,12 @@ class Model2(nn.Module):
 
         loss = nn.MSELoss()(image_rec, reconstruct_same_id)
 
-        if self.mode == 'predict':
+        if self.training:
+            return reconstruct_same_id, loss
+        else:
             return image_in, image_rec, mu, heat_map
 
-        elif self.mode == 'train':
-            return reconstruct_same_id, loss
+
 
 
 

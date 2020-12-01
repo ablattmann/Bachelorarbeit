@@ -208,7 +208,7 @@ def total_loss(input, reconstr, sig_shape, sig_app, mu, coord, vector,
     # rec_loss = nn.BCELoss()(reconstr, input)
     # rec_loss = nn.L1Loss()(reconstr, input)
     total_loss = rec_loss + equiv_loss
-    return total_loss
+    return total_loss, rec_loss, equiv_loss
 
 
 def count_parameters(model):

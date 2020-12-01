@@ -157,7 +157,7 @@ class Nccuc(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, nk, nf, reconstr_dim, n_c=3):
+    def     __init__(self, nk, nf, reconstr_dim, n_c=3):
         super(Decoder, self).__init__()
         self.reconstr_dim = reconstr_dim
         self.out_channels = n_c

@@ -1,0 +1,54 @@
+# parameters for training/testing the network
+name: "test_part_based-deepfashion"
+base_dir: "/export/scratch/ablattma/vda_ap1-5"
+seed: 42
+
+# data
+dataset: DeepFashion # should be in [DeepFashion, CUB, ALFW, Human36m, CelebA]
+datapath: None
+n_workers: 20
+
+# options
+covariance: True
+epochs: 20
+reconstr_dim: 256
+
+#modes
+bn: 12
+n_parts: 16
+n_features: 64
+n_c: 3
+residual_dim: 256
+depth_s: 4
+depth_a: 1
+
+# loss
+lr: 0.001
+weight_decay: 0.0005
+L_mu: 5.
+L_cov: 0.1
+
+# tps
+l_2_scal: 0.1
+l_2_threshold: 0.2
+L_inv_scal: 0.8
+scal: 0.8
+tps_scal: 0.05
+rot_scal: 0.1
+off_scal: 0.15
+scal_var: 0.05
+augm_scal: 1.
+
+# appearance
+contrast: 0.5
+brightness: 0.1
+saturation: 0.1
+hue: 0.3
+p_flip: 0.
+static: True
+
+# logging
+log_intervall: 300
+metric_at_epochs: 1
+test_img_intervall: 500
+ckpt_intervall: 1000

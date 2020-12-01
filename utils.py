@@ -4,9 +4,13 @@ from PIL import Image
 from matplotlib import cm
 import matplotlib.pyplot as plt
 import os
-from skimage.transform import pyramid_reduce
 from opt_einsum import contract
 from torchvision.utils import save_image
+import inspect
+import coloredlogs
+import logging
+import logging.config
+import yaml
 
 
 def convert_image_np(inp):
@@ -113,3 +117,39 @@ def load_images_from_folder(stop=False):
             if i == 3:
                 break
     return images
+
+iuhihfie_logger_loaded = False
+def get_logger(name):
+    # setup logging
+    global iuhihfie_logger_loaded
+    if not iuhihfie_logger_loaded:
+        with open(f'{os.path.dirname(os.path.abspath(__file__))}/logging.yaml', 'r') as f:
+            log_cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
+            logging.config.dictConfig(log_cfg)
+            iuhihfie_logger_loaded = True
+    logger = logging.getLogger(name)
+    coloredlogs.install(logger=logger, level="DEBUG")
+    return logger
+
+class LoggingParent:
+    def __init__(self):
+        super(LoggingParent, self).__init__()
+        # find project root
+        mypath = inspect.getfile(self.__class__)
+        mypath = "/".join(mypath.split("/")[:-1])
+        found = False
+        while mypath!="" and not found:
+            f = []
+            for (dirpath, dirnames, filenames) in os.walk(mypath):
+                f.extend(filenames)
+                break
+            if ".gitignore" in f:
+                found = True
+                continue
+            mypath = "/".join(mypath.split("/")[:-1])
+        project_root = mypath+"/"
+        # Put it together
+        file = inspect.getfile(self.__class__).replace(project_root, "").replace("/", ".").split(".py")[0]
+        cls = str(self.__class__)[8:-2]
+        cls = str(cls).replace("__main__.", "").split(".")[-1]
+        self.logger = get_logger(f"{file}.{cls}")
