@@ -1,0 +1,4 @@
+{
+  "checkpoint": "./unsupervised/weights/inter_ckpt_deepfashion_part_based.pth",
+  "remote-weights": "lfs-objects/TP1/AP1.5/E1.5.4_part-based_unsupervised_pose_estimation_HCI/inter_ckpt_deepfashion_part_based.pth"
+}
