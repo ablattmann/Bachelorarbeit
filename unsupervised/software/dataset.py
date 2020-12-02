@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from os import path
 import cv2
+from natsort import natsorted
+from glob import glob
 
 from software.utils import LoggingParent
 
@@ -84,9 +86,25 @@ class DeepFashionDataset(BaseDataset):
         self.datadict["img_path"] = [path.join(self.basepath,p) for p in target_paths]
 
 
+class Human36mDataset(BaseDataset):
+
+    def _read_data(self):
+        if self.basepath is None:
+            self.basepath = "/export/scratch/compvis/datasets/human3M_lorenz19"
+        if self.train:
+            subdir_name = "train"
+        else:
+            subdir_name = "test"
+
+        datafiles = natsorted(glob(path.join(self.basepath, subdir_name, "*","*","*.jpg")))
+
+        self.datadict["img_path"] = datafiles
 
 
-__datasets__ = {"DeepFashion": DeepFashionDataset}
+
+
+__datasets__ = {"DeepFashion": DeepFashionDataset,
+                "Human36M": Human36mDataset}
 
 def get_dataset(dataset_name):
     return __datasets__[dataset_name]

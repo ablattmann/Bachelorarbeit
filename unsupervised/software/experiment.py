@@ -5,6 +5,7 @@ from glob import glob
 import numpy as np
 from torchvision import transforms as T
 from torch.utils.data import DataLoader
+from torch import autograd
 from ignite.engine import Engine, Events
 from ignite.handlers import ModelCheckpoint
 from ignite.contrib.handlers import ProgressBar
@@ -253,15 +254,26 @@ class PartBased(LoggingParent):
         def train_step(engine, batch):
             model.train()
             original = batch["images"].cuda(self.device)
+            if torch.isnan(original).any():
+                raise ValueError("Detected NaN in input...")
+
+            # with autograd.detect_anomaly():
 
             tps_param_dic = tps_parameters(original.shape[0], self.config.scal, self.config.tps_scal, self.config.rot_scal,
                                            self.config.off_scal, self.config.scal_var, self.config.augm_scal)
             coord, vector = make_input_tps_param(tps_param_dic)
             coord, vector = coord.cuda(self.device), vector.cuda(self.device)
+            if torch.isnan(coord).any() or torch.isnan(vector).any():
+                raise ValueError("Detected NaN in input...")
             image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
                                                  original.shape[3], self.device)
+            if torch.isnan(image_spatial_t).any():
+                raise ValueError("Detected NaN in spatially transformed image...")
             image_appearance_t = K.ColorJitter(self.config.brightness, self.config.contrast, self.config.saturation, self.config.hue)(original)
-            # Zero out gradients
+            if torch.isnan(image_appearance_t).any():
+                raise ValueError("Detected NaN in appearance transformed image...")
+
+                # Zero out gradients
 
             rec, ssp, asp, mu, heat_map = model(original, image_spatial_t, image_appearance_t, coord, vector)
 
@@ -371,7 +383,7 @@ class PartBased(LoggingParent):
                 coord, vector = coord.cuda(self.device), vector.cuda(self.device)
                 image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
                                                      original.shape[3], self.device)
-                image_appearance_t = K.ColorJitter(self.config.brightness, self.config.contrast, self.config.saturation, self.config.hue)(original)
+                image_appearance_t = K.ColorJitter(self.config.brightness, self.config.contrast, self.config.saturation, self.config.hue)(original).cuda(self.device)
 
                 rec, ssp, asp, mu, heat_map = model(original, image_spatial_t, image_appearance_t, coord, vector)
 

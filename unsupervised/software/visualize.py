@@ -1,16 +1,6 @@
-import torch
-import os
-from software.utils import plot_tensor
 import numpy as np
 import cv2
 
-
-def plot_samples(name):
-    for image in os.listdir('/users/spadel/mount/point/' + name + '/reconstruction'):
-        torch_image = torch.load('/users/spadel/mount/point/' + name + '/reconstruction/' + image,
-                                 map_location=torch.device('cpu'))
-        plot_tensor(torch_image[0])
-        print(image)
 
 
 def make_keypoint_image(tgts,mus,img_size):

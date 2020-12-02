@@ -1,10 +1,10 @@
 # parameters for training/testing the network
-name: "test_part_based-deepfashion"
+name: "test_part_based-deepfashion-no_equiv"
 base_dir: "/export/scratch/ablattma/vda_ap1-5"
 seed: 42
 
 # data
-dataset: DeepFashion # should be in [DeepFashion, CUB, ALFW, Human36m, CelebA]
+dataset: DeepFashion # should be in [DeepFashion, CUB, ALFW, Human36M, CelebA]
 datapath: None
 n_workers: 20
 
@@ -12,7 +12,7 @@ n_workers: 20
 covariance: True
 epochs: 100
 reconstr_dim: 256
-vgg_loss: True
+vgg_loss: False
 
 #modes
 bn: 10
@@ -24,11 +24,11 @@ depth_s: 4
 depth_a: 1
 
 # loss
-lr: 0.001
+lr: 0.0005
 weight_decay: 0.0005
-L_mu: 5.
-L_cov: 0.1
-w_perc: 0.1
+L_mu: 0.0005
+L_cov: 0.0001
+w_perc: 0
 
 # tps
 l_2_scal: 0.1
