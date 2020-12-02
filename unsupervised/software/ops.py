@@ -8,6 +8,7 @@ from collections import namedtuple
 
 from software.transformations import ThinPlateSpline
 from software.utils import get_member
+from software.architecture_ops import softmax
 
 def get_local_part_appearances(f, sig):
     alpha = contract('bfij, bkij -> bkf', f, sig)
@@ -43,11 +44,11 @@ def get_mu_and_prec(part_maps, device, scal):
     x_t = torch.linspace(-1., 1., w).reshape(1, w).repeat(h, 1).unsqueeze(-1)
     meshgrid = torch.cat((y_t, x_t), dim=-1).to(device) # 64 x 64 x 2
 
-    mu = contract('ijl, akij -> akl', meshgrid, part_maps) # 1 x 20 x 2
+    mu = contract('akij,ijl-> akl', part_maps, meshgrid) # 1 x 20 x 2
     mu_out_prod = contract('akm,akn->akmn', mu, mu)
 
     mesh_out_prod = contract('ijm,ijn->ijmn', meshgrid, meshgrid)
-    stddev = contract('ijmn,akij->akmn', mesh_out_prod, part_maps) - mu_out_prod
+    stddev = contract('akij,ijmn->akmn', part_maps, mesh_out_prod) - mu_out_prod
 
     a_sq = stddev[:, :, 0, 0]
     a_b = stddev[:, :, 0, 1]
@@ -197,6 +198,7 @@ def total_loss(input, reconstr, sig_shape, sig_app, mu, coord, vector,
     bn, k, h, w = sig_shape.shape
     # Equiv Loss
     sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, h, device=device)
+    sig_shape_trans = softmax(sig_shape_trans)
     mu_1, L_inv1 = get_mu_and_prec(sig_app, device, scal)
     #cov_1 = get_covariance(sig_app)
     mu_2, L_inv2 = get_mu_and_prec(sig_shape_trans, device, scal)
@@ -321,11 +323,11 @@ def fold_img_with_mu(img, mu, scale, threshold, device, normalize=True):
     heat_scal = torch.clamp(heat_scal, min=0., max=1.)
     heat_scal = torch.where(heat_scal > threshold, heat_scal, torch.zeros_like(heat_scal))
 
-    norm = torch.sum(heat_scal.reshape(bn, -1), dim=1).unsqueeze(1).unsqueeze(1)
+    norm = torch.sum(heat_scal.reshape(bn, -1), dim=1).unsqueeze(1).unsqueeze(1) + 1e-12
     if normalize:
         heat_scal_norm = heat_scal / norm
         folded_img = contract('bcij,bij->bcij', img, heat_scal_norm)
-    if not normalize:
+    else:
         folded_img = contract('bcij,bij->bcij', img, heat_scal)
 
     return folded_img, heat_scal.unsqueeze(-1)
