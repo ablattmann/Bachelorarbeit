@@ -78,15 +78,20 @@ The model consists of three submodels. A shape stream learns a shape representat
 --------------------
 
 #### Training
+
 ##### Input
 The model receives two modifications of the same image as input, where the image is assumed to show a person. By using TPS-transformations, we modify the shape of the depicted person in the first input image, whereas in the second one is color-transformed, 
 thus altering this person's appearance.
+
 ##### Approach
+
 As the shape stream should learn to be invariant to appearance changes, it recovers the pixel-level shape representations `s_i`, which can be thought of as heatmaps, for each each body part `i` based on the color-transformed input image `A(x)`. Similarly, the appearance stream should 
 become invariant to shape changes. Thus we use this submodel to estimate the part-appearances `a_i` based on the geometrically transformed input image `T(x)`. Based on those two inputs, the image generator is trained to reconstruct the original, untransformed image, thus promoting the appearance and shape streams towards learning the invariances. 
 Moreover, we exploit the equivariance of the part-shapes under geometric transformations. Equivariance here means, that the part-shape-representations of the transformed image `s_i(T(x))` should be equal to the part-shape-representations of the original image under the same transformation `T(s_i(x))`. 
 Thus, we formulate an equivariance loss which minimizes the difference of spatial means and covariances between `T(s_i(x))` and `s_i(T(x))` and, hence, helps the model in learning meaningful part-shape-representations. 
+
 ----------------
+
 #### Inference
 During inference, we estimate a two-dimensional gaussian from the part-shape-representations `s_i(x)` for a given input image `x`. A keypoint for each individual body part is then obtained from the mean of the gaussian estimated from the corresponding part-shape-representation `s_i(x)` .
 
