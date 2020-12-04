@@ -27,6 +27,7 @@ _arg_output="${HOME}/output"
 _arg_mode="train"
 _arg_config=""
 _arg_parse_config=false
+_arg_gpu=-1
 
 
 print_help()
@@ -61,6 +62,17 @@ parse_commandline()
 				;;
 			-s*)
 				_arg_software="${_key##-s}"
+				;;
+		  -g|--gpu)
+				test $# -lt 2 && die "Missing value for the optional argument '$_key'." 1
+				_arg_gpu="$2"
+				shift
+				;;
+			--gpu=*)
+				_arg_gpu="${_key##--gpu=}"
+				;;
+			-g*)
+				_arg_gpu="${_key##-g}"
 				;;
 			-i|--input)
 				test $# -lt 2 && die "Missing value for the optional argument '$_key'." 1
@@ -130,6 +142,8 @@ _arg_input="$(echo -e "${_arg_input}" | sed -e 's/^[[:space:]]*//')"
 _arg_output="$(echo -e "${_arg_output}" | sed -e 's/^[[:space:]]*//')"
 _arg_mode="$(echo -e "${_arg_mode}" | sed -e 's/^[[:space:]]*//')"
 _arg_config="$(echo -e "${_arg_config}" | sed -e 's/^[[:space:]]*//')"
+_arg_gpu="$(echo -e "${_arg_gpu}" | sed -e 's/^[[:space:]]*//')"
+
 
 # Remove trailing options
 software_dir=${_arg_software%% *}
@@ -137,8 +151,7 @@ input_dir=${_arg_input%% *}
 output_dir=${_arg_output%% *}
 mode_flag=${_arg_mode%% *}
 config_file=${_arg_config%% *}
-parse_config=${_arg_parse_config}
-parsed_config=""
+gpu_id=${_arg_gpu%% *}
 
 echo ""
 echo -n  "Check for software directory: "
@@ -153,13 +166,18 @@ echo -n "Check for output directory: "
 test -d "$output_dir" || die "\"$output_dir\" does not exist. Exiting."
 echo "$output_dir exists!"
 
+echo -n "Config file is ${config_file}"
+echo -n ""
+
+echo -n "GPU id is ${gpu_id}"
+echo -n ""
 
 command=""
 
 ############################### Modify Here ##########################################
 
 #### Add here the specific software call and the optional or positional options to the software call
-software="${software_dir}/main.py"
+software="main.py"
 
 ### Add here modifications to the input option, e.g. add a filename to the input directory path
 input="${input_dir}"
@@ -174,9 +192,10 @@ config="${config_file}"
 #else
 #	config='--config ""'
 #fi
+gpu="${gpu_id}"
 
 ### Add software, input, output and optional config together for the final CLI command that is to be called
-command="${software} --input ${input} --output ${output} --mode ${mode_flag} --config ${config}"
+command="${software} --input ${input} --output ${output} --mode ${mode_flag} --config ${config} --gpu ${gpu}"
 
 ############################### End Modification ######################################
 

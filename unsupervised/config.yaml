@@ -1,5 +1,5 @@
 # parameters for training/testing the network
-name: "test_part_based-deepfashion-no_equiv"
+name: test_start_ai_function #test_part_based-deepfashion-small_equiv #"test_part_based-deepfashion-small_equiv-circ_prec"
 base_dir: "/export/scratch/ablattma/vda_ap1-5"
 seed: 42
 
@@ -9,13 +9,13 @@ datapath: None
 n_workers: 20
 
 # options
-covariance: True
+covariance: False
 epochs: 100
 reconstr_dim: 256
 vgg_loss: False
 
 #modes
-bn: 10
+bn: 16
 n_parts: 16
 n_features: 64
 n_c: 3
@@ -26,8 +26,8 @@ depth_a: 1
 # loss
 lr: 0.0005
 weight_decay: 0.0005
-L_mu: 0.0005
-L_cov: 0.0001
+L_mu: 0.01
+L_cov: 0.01
 w_perc: 0
 
 # tps
