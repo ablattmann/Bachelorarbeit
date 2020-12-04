@@ -1,36 +1,35 @@
 # parameters for training/testing the network
-name: test_start_ai_function #test_part_based-deepfashion-small_equiv #"test_part_based-deepfashion-small_equiv-circ_prec"
-base_dir: "/export/scratch/ablattma/vda_ap1-5"
-seed: 42
+name: test
+base_dir: None # path to the output dir, where logs, ckpts, and hyperparameters will be stored. This will be overwritten with --output command line parameter
+seed: 42 # random seed
 
 # data
 dataset: DeepFashion # should be in [DeepFashion, CUB, ALFW, Human36M, CelebA]
-datapath: None
-n_workers: 20
+datapath: None # path to the data. This will be overwritten with --output command line parameter
+n_workers: 20 # number of workers for the dataloader
 
 # options
-covariance: False
-epochs: 100
-reconstr_dim: 256
-vgg_loss: False
+covariance: False # whether to consider covariances of the part shapes for the equivariance loss
+epochs: 100 # epochs to train the model
+reconstr_dim: 256 # spatial image dimension of input and output
+vgg_loss: False # whether to use perceptual loss for image reconstruction
 
-#modes
-bn: 16
-n_parts: 16
-n_features: 64
-n_c: 3
-residual_dim: 256
+# other hyperparameters
+bn: 16 # batch size
+n_parts: 16 # number of parts
+n_features: 64 # feature map depth
+n_c: 3 # number of image channels
+residual_dim: 256 # channels in part-appearance representations for each body parts
 depth_s: 4
 depth_a: 1
 
 # loss
-lr: 0.0005
-weight_decay: 0.0005
-L_mu: 0.01
-L_cov: 0.01
-w_perc: 0
+lr: 0.0005 # learning rate
+weight_decay: 0.0005 # weight decay parameter
+L_mu: 0.01 # weighting factor for the means in the equivariance loss
+L_cov: 0.01 # weighting factor for the covariances in the equivariance loss
 
-# tps
+# tps parameters
 l_2_scal: 0.1
 l_2_threshold: 0.2
 L_inv_scal: 0.8
@@ -41,7 +40,7 @@ off_scal: 0.15
 scal_var: 0.05
 augm_scal: 1.
 
-# appearance
+# color transform parameters
 contrast: 0.5
 brightness: 0.1
 saturation: 0.1

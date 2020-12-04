@@ -69,7 +69,7 @@ if __name__ == '__main__':
     parser.add_argument("-r","--restart", default=False,action="store_true",help="Whether training should be resumed.")
     parser.add_argument("--gpu",default=0, type=int,help="GPU to use.")
     parser.add_argument("--debug","-d",default=False, action="store_true", help="Whether or not to run the script in debug mode.")
-    parser.add_argument("-m","--mode",default="train",type=str,choices=["train","test"],help="Whether to start in train or infer mode?")
+    parser.add_argument("-m","--mode",default="train",type=str,choices=["train","inference"],help="Whether to start in train or infer mode?")
     parser.add_argument("--input",type=str, default=None, help="The input-, or data-path.")
     parser.add_argument("--output", type=str, default=None, help="The path were the output should be stored, including logs etc.")
 
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     partbased_experiment = PartBased(config, structure)
     if config["mode"] == "train":
         partbased_experiment.train()
-    elif config["mode"] == "test":
+    elif config["mode"] == "inference":
         partbased_experiment.infer()
     else:
         raise ValueError(f'"mode"-parameter should be either "train" or "infer" but is actually {config["mode"]}')
