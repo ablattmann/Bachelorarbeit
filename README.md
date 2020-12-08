@@ -36,7 +36,7 @@ The dependencies are listed in
 pip_requirements.txt
 ```
 
-To train and test the moel, create a new environment, upgrade pip and install the dependencies via
+To train and test the model, create a new environment, upgrade pip and install the dependencies via
 ```
 pip install -r pip_requirements.txt
 ```

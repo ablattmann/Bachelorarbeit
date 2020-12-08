@@ -190,92 +190,24 @@ def feat_mu_to_enc(features, mu, L_inv, device, covariance, reconstr_dim, static
             else:
                 encoding_list.append(part_heat_circ)
 
-    return encoding_list
-
-
-def total_loss(input, reconstr, sig_shape, sig_app, mu, coord, vector,
-               device, L_mu, L_cov, scal, l_2_scal, l_2_threshold, vgg=None):
-    bn, k, h, w = sig_shape.shape
-    # Equiv Loss
-    sig_shape_trans, _ = ThinPlateSpline(sig_shape, coord, vector, h, device=device)
-    sig_shape_trans = softmax(sig_shape_trans)
-    mu_1, L_inv1 = get_mu_and_prec(sig_app, device, scal)
-    #cov_1 = get_covariance(sig_app)
-    mu_2, L_inv2 = get_mu_and_prec(sig_shape_trans, device, scal)
-    #cov_2 = get_covariance(sig_shape_trans)
-    equiv_loss = torch.mean(torch.sum(L_mu * torch.norm(mu_1 - mu_2, p=2, dim=2) + \
-                           L_cov * torch.norm(L_inv1 - L_inv2, p=1, dim=[2, 3]), dim=1))
-
-    # Rec Loss
-    if vgg is None:
-        distance_metric = torch.abs(input - reconstr)
-        fold_img_squared, heat_mask_l2 = fold_img_with_mu(distance_metric, mu, l_2_scal, l_2_threshold, device)
-        rec_loss = torch.mean(torch.sum(torch.sum(fold_img_squared.reshape(bn, k, -1), dim=2), dim=1))
-    else:
-        rec_loss = vgg_loss(vgg,input,reconstr)
-    # rec_loss = nn.BCELoss()(reconstr, input)
-    # rec_loss = nn.L1Loss()(reconstr, input)
-    total_loss = rec_loss + equiv_loss
-    return total_loss, rec_loss, equiv_loss
+    return encoding_listrecon
 
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def augm(t, arg):
-    t = K.ColorJitter(arg.brightness_var, arg.contrast_var, arg.saturation_var, arg.hue_var)(t)
-    random_tensor = 1. - arg.p_flip + torch.rand(size=[1], dtype=t.dtype)
-    binary_tensor = torch.floor(random_tensor)
-    random_tensor, binary_tensor = random_tensor.to(arg.device), binary_tensor.to(arg.device)
-
-    augmented = binary_tensor * t + (1 - binary_tensor) * (1 - t)
-    return augmented
-
-
-def prepare_pairs(t_images, arg, reconstr_dim=128):
-    if arg.mode == 'train':
-        bn, n_c, w, h = t_images.shape
-        t_c_1_images = augm(t_images, arg)
-        t_c_2_images = augm(t_images, arg)
-
-        if arg.static:
-            t_c_1_images = torch.cat([t_c_1_images[:bn//2].unsqueeze(1), t_c_1_images[bn//2:].unsqueeze(1)], dim=1)
-            t_c_2_images = torch.cat([t_c_2_images[:bn//2].unsqueeze(1), t_c_2_images[bn//2:].unsqueeze(1)], dim=1)
-        else:
-            t_c_1_images = t_c_1_images.reshape(bn // 2, 2, n_c, h, w)
-            t_c_2_images = t_c_2_images.reshape(bn // 2, 2, n_c, h, w)
-
-        a, b = t_c_1_images[:, 0].unsqueeze(1), t_c_1_images[:, 1].unsqueeze(1)
-        c, d = t_c_2_images[:, 0].unsqueeze(1), t_c_2_images[:, 1].unsqueeze(1)
-
-        if arg.static:
-            t_input_images = torch.cat([a, d], dim=0).reshape(bn, n_c, w, h)
-            t_reconst_images = torch.cat([c, b], dim=0).reshape(bn, n_c, w, h)
-        else:
-            t_input_images = torch.cat([a, d], dim=1).reshape(bn, n_c, w, h)
-            t_reconst_images = torch.cat([c, b], dim=1).reshape(bn, n_c, w, h)
-
-        t_input_images = torch.clamp(t_input_images, min=0., max=1.)
-        t_reconst_images = F.interpolate(torch.clamp(t_reconst_images, min=0., max=1.), size=reconstr_dim)
-
-    else:
-        t_input_images = torch.clamp(t_images, min=0., max=1.)
-        t_reconst_images = F.interpolate(torch.clamp(t_images, min=0., max=1.), size=reconstr_dim)
-
-    return t_input_images, t_reconst_images
-
 
 def AbsDetJacobian(batch_meshgrid, device):
     """
+        :param device:
         :param batch_meshgrid: takes meshgrid tensor of dim [bn, 2, h, w] (conceptually meshgrid represents a two dimensional function f = [fx, fy] on [bn, h, w] )
         :return: returns Abs det of  Jacobian of f of dim [bn, 1, h, w]
         """
     y_c = batch_meshgrid[:, 0, :, :].unsqueeze(1)
     x_c = batch_meshgrid[:, 1, :, :].unsqueeze(1)
-    sobel_x_filter = 1 / 4 * torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float).reshape(1, 1, 3, 3).cuda()
-    sobel_y_filter = sobel_x_filter.permute(0, 1, 3, 2).cuda()
-
+    sobel_x_filter = 1 / 4 * torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float).reshape(1, 1, 3, 3).cuda(device)
+    sobel_y_filter = sobel_x_filter.permute(0, 1, 3, 2).cuda(device)
 
     filtered_y_y = F.conv2d(y_c, sobel_y_filter, stride=1, padding=1)
     filtered_y_x = F.conv2d(y_c, sobel_x_filter, stride=1, padding=1)
@@ -287,9 +219,51 @@ def AbsDetJacobian(batch_meshgrid, device):
     return Det
 
 
+def augm(t, arg):
+    t = K.ColorJitter(arg.brightness, arg.contrast, arg.saturation, arg.hue)(t)
+    random_tensor = 1. - arg.p_flip + torch.rand(size=[1], dtype=t.dtype)
+    binary_tensor = torch.floor(random_tensor)
+    random_tensor, binary_tensor = random_tensor.to(arg.device), binary_tensor.to(arg.device)
+
+    augmented = binary_tensor * t + (1 - binary_tensor) * (1 - t)
+    return augmented
+
+
+def prepare_pairs(t_images, arg):
+    if arg.mode == 'train':
+        bn, n_c, w, h = t_images.shape
+        t_c_1_images = augm(t_images, arg)
+        t_c_2_images = augm(t_images, arg)
+
+        if arg.static:
+            t_c_1_images = torch.cat([t_c_1_images[:bn // 2].unsqueeze(1), t_c_1_images[bn // 2:].unsqueeze(1)], dim=1)
+            t_c_2_images = torch.cat([t_c_2_images[:bn // 2].unsqueeze(1), t_c_2_images[bn // 2:].unsqueeze(1)], dim=1)
+        else:
+            t_c_1_images = t_c_1_images.reshape(bn // 2, 2, n_c, h, w)
+            t_c_2_images = t_c_2_images.reshape(bn // 2, 2, n_c, h, w)
+
+        a, b = t_c_1_images[:, 0].unsqueeze(1), t_c_1_images[:, 1].unsqueeze(1)
+        c, d = t_c_2_images[:, 0].unsqueeze(1), t_c_2_images[:, 1].unsqueeze(1)
+
+        if arg.static:
+            t_input_images = torch.cat([a, d], dim=0).reshape(bn, n_c, w, h)
+            t_reconstr_images = torch.cat([c, b], dim=0).reshape(bn, n_c, w, h)
+        else:
+            t_input_images = torch.cat([a, d], dim=1).reshape(bn, n_c, w, h)
+            t_reconstr_images = torch.cat([c, b], dim=1).reshape(bn, n_c, w, h)
+
+        t_input_images = torch.clamp(t_input_images, min=0., max=1.)
+        t_reconstr_images = F.interpolate(torch.clamp(t_reconstr_images, min=0., max=1.), size=arg.reconstr_dim)
+
+    else:
+        t_input_images = torch.clamp(t_images, min=0., max=1.)
+        t_reconstr_images = F.interpolate(torch.clamp(t_images, min=0., max=1.), size=arg.reconstr_dim)
+
+    return t_input_images, t_reconstr_images
+
+
 def heat_map_function(y_dist, x_dist, y_scale, x_scale):
-    x = 1 / (1 + (torch.square(y_dist / (1e-6 + y_scale)) + torch.square(
-        x_dist / (1e-6 + x_scale))))
+    x = 1 / (1 + (torch.square(y_dist / (1e-6 + y_scale)) + torch.square(x_dist / (1e-6 + x_scale))))
     return x
 
 
@@ -314,8 +288,9 @@ def fold_img_with_mu(img, mu, scale, threshold, device, normalize=True):
     x_t_flat = x_t.reshape(1, 1, -1).to(device)
     y_t_flat = y_t.reshape(1, 1, -1).to(device)
 
-    y_dist = py - y_t_flat
-    x_dist = px - x_t_flat
+    eps = 1e-6
+    y_dist = py - y_t_flat + eps
+    x_dist = px - x_t_flat + eps
 
     heat_scal = heat_map_function(y_dist=y_dist, x_dist=x_dist, x_scale=scale, y_scale=scale)
     heat_scal = heat_scal.reshape(bn, nk, h, w)  # bn width height number parts
@@ -323,14 +298,89 @@ def fold_img_with_mu(img, mu, scale, threshold, device, normalize=True):
     heat_scal = torch.clamp(heat_scal, min=0., max=1.)
     heat_scal = torch.where(heat_scal > threshold, heat_scal, torch.zeros_like(heat_scal))
 
-    norm = torch.sum(heat_scal.reshape(bn, -1), dim=1).unsqueeze(1).unsqueeze(1) + 1e-12
+    norm = torch.sum(heat_scal.reshape(bn, -1), dim=1).unsqueeze(1).unsqueeze(1)
     if normalize:
         heat_scal_norm = heat_scal / norm
         folded_img = contract('bcij,bij->bcij', img, heat_scal_norm)
-    else:
+    if not normalize:
         folded_img = contract('bcij,bij->bcij', img, heat_scal)
 
     return folded_img, heat_scal.unsqueeze(-1)
+
+
+def fold_img_with_L_inv(img, mu, L_inv, scale, threshold, device, normalize=True):
+    """
+        folds the pixel values of img with potentials centered around the part means (mu)
+        :param img: batch of images
+        :param mu:  batch of part means in range [-1, 1]
+        :param scale: scale that governs the range of the potential
+        :param visualize:
+        :param normalize: whether to normalize the potentials
+        :return: folded image
+        """
+    bn, nc, h, w = img.shape
+    bn, nk, _ = mu.shape
+
+    mu_stop = mu.detach()
+
+    y_t = torch.linspace(-1., 1., h).reshape(h, 1).repeat(1, w)
+    x_t = torch.linspace(-1., 1., w).reshape(1, w).repeat(h, 1)
+    x_t_flat = x_t.reshape(1, 1, -1).to(device)
+    y_t_flat = y_t.reshape(1, 1, -1).to(device)
+
+    mesh = torch.cat([y_t_flat, x_t_flat], dim=-2)
+    eps = 1e-6
+    dist = mesh - mu_stop.unsqueeze(-1) + eps
+
+    proj_precision = contract('bnik, bnkf -> bnif', scale * L_inv, dist) ** 2  # tf.matmul(precision, dist)**2
+    proj_precision = torch.sum(proj_precision, -2)  # sum x and y axis
+
+    heat = 1 / (1 + proj_precision)
+
+    heat = torch.reshape(heat, shape=[bn, nk, h, w])  # bn width height number parts
+    heat = contract('bkij -> bij', heat)
+    heat_scal = torch.clamp(heat, min=0., max=1.)
+    heat_scal = torch.where(heat_scal > threshold, heat_scal, torch.zeros_like(heat_scal))
+
+    norm = torch.sum(heat_scal.reshape(bn, -1), dim=1).unsqueeze(1).unsqueeze(1)
+    if normalize:
+        heat_scal = heat_scal / norm
+    folded_img = contract('bcij, bij -> bcij', img, heat_scal)
+
+    return folded_img
+
+
+def loss_fn(bn, mu, L_inv, mu_t, stddev_t, reconstruct_same_id, image_rec, fold_with_shape, l_2_scal, l_2_threshold,
+            L_mu, L_cov, device):
+
+    # Equiv Loss
+    mu_t_1, mu_t_2 = mu_t[:bn], mu_t[bn:]
+    stddev_t_1, stddev_t_2 = stddev_t[:bn], stddev_t[bn:]
+    transform_loss = torch.mean((mu_t_1 - mu_t_2) ** 2)
+
+    precision_sq = (stddev_t_1 - stddev_t_2) ** 2
+
+    eps = 1e-6
+    precision_loss = torch.mean(torch.sqrt(torch.sum(precision_sq, dim=[2, 3]) + eps))
+
+    img_difference = reconstruct_same_id - image_rec
+    distance_metric = torch.abs(img_difference)
+
+    if fold_with_shape:
+        fold_img_squared = fold_img_with_L_inv(distance_metric, mu.detach(), L_inv.detach(),
+                                               l_2_scal, l_2_threshold, device)
+    else:
+        fold_img_squared, heat_mask_l2 = fold_img_with_mu(distance_metric, mu, l_2_scal, l_2_threshold, device)
+
+    rec_loss = torch.mean(torch.sum(fold_img_squared, dim=[2, 3]))
+
+    total_loss = rec_loss + L_mu * transform_loss + L_cov * precision_loss
+    return total_loss, rec_loss, transform_loss, precision_loss
+
+
+
+
+
 
 class PerceptualVGG(nn.Module):
     def __init__(self, weights=None):

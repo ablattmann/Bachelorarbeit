@@ -5,7 +5,6 @@ from glob import glob
 import numpy as np
 from torchvision import transforms as T
 from torch.utils.data import DataLoader
-from torch import autograd
 from ignite.engine import Engine, Events
 from ignite.handlers import ModelCheckpoint
 from ignite.contrib.handlers import ProgressBar
@@ -15,10 +14,10 @@ from kornia.enhance import normalize_min_max
 import wandb
 
 from software.transformations import tps_parameters, make_input_tps_param, ThinPlateSpline
-from software.model import Model
+from software.model import LandmarkModel
 from software.dataset import get_dataset
 from software.utils import LoggingParent
-from software.ops import total_loss, PerceptualVGG
+from software.ops import PerceptualVGG
 from software.metrics import ssim,psnr
 from software.visualize import make_img_grid
 
@@ -220,7 +219,7 @@ class PartBased(LoggingParent):
 
 
         # model
-        model = Model(self.config)
+        model = LandmarkModel(self.config)
         self.logger.info(f"Number of trainable parameters in model is {sum(p.numel() for p in model.parameters())}")
         if self.config.restart and mod_ckpt is not None:
             self.logger.info("Load pretrained parameters and resume training.")
@@ -255,38 +254,24 @@ class PartBased(LoggingParent):
         def train_step(engine, batch):
             model.train()
             original = batch["images"].cuda(self.device)
-            if torch.isnan(original).any():
-                raise ValueError("Detected NaN in input...")
-
-            # with autograd.detect_anomaly():
-
-            tps_param_dic = tps_parameters(original.shape[0], self.config.scal, self.config.tps_scal, self.config.rot_scal,
-                                           self.config.off_scal, self.config.scal_var, self.config.augm_scal)
-            coord, vector = make_input_tps_param(tps_param_dic)
-            coord, vector = coord.cuda(self.device), vector.cuda(self.device)
-            image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
-                                                 original.shape[3], self.device)
-            image_appearance_t = K.ColorJitter(self.config.brightness, self.config.contrast, self.config.saturation, self.config.hue)(original)
-
-            # Zero out gradients
-            image_spatial_t = normalize_min_max(image_spatial_t)
-            image_appearance_t = normalize_min_max(image_appearance_t)
-
-
-            rec, ssp, asp, mu = model(original, image_spatial_t, image_appearance_t, coord, vector)
-
-            loss, rec_loss, equiv_loss = total_loss(original, rec, ssp, asp, mu, coord, vector,
-                                                  self.device, self.config.L_mu, self.config.L_cov,
-                                                  self.config.scal, self.config.l_2_scal, self.config.l_2_threshold, self.vgg)
-
-
-            # fixme compute keypoint metrics if available
+            img_rec, rec_same_id, loss, rec_loss, transform_loss, precision_loss, mu, L_inv, part_maps_raw = model(original)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            out_dict = {"loss": loss.item(), "rec_loss": rec_loss.item(), "equiv_loss": equiv_loss.item()}
+            equiv_loss = self.config.L_mu * transform_loss + self.config.L_cov * precision_loss
+            report_means = torch.mean(torch.norm(mu, p=1, dim=2), dim=0).cpu().detach().numpy()
+            report_prec = torch.mean(torch.linalg.norm(L_inv, ord='fro', dim=[2, 3]),dim=0).cpu().detach().numpy()
+
+            mean_dict = {f"part_{pc}-mu-norm": l.item() for pc,l in enumerate(report_means)}
+            prec_dict = {f"part_{pc}-prec-norm": c.item() for pc,c in enumerate(report_prec)}
+
+            out_dict = {"loss": loss.item(), "rec_loss": rec_loss.item(), "equiv_loss": equiv_loss.item(),
+                        "transform_loss": transform_loss.item(), "precision_loss": precision_loss.item()}
+
+            out_dict.update(mean_dict)
+            out_dict.update(prec_dict)
 
             return out_dict
 
@@ -294,29 +279,27 @@ class PartBased(LoggingParent):
             model.eval()
             with torch.no_grad():
                 original = batch["images"].cuda(self.device)
+                img_rec, rec_same_id, loss, rec_loss, transform_loss, precision_loss, mu, L_inv, part_maps_raw = model(original)
 
-                tps_param_dic = tps_parameters(original.shape[0], self.config.scal, self.config.tps_scal, self.config.rot_scal,
-                                               self.config.off_scal, self.config.scal_var, self.config.augm_scal)
-                coord, vector = make_input_tps_param(tps_param_dic)
-                coord, vector = coord.cuda(self.device), vector.cuda(self.device)
-                image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
-                                                     original.shape[3], self.device)
-                image_appearance_t = K.ColorJitter(self.config.brightness, self.config.contrast, self.config.saturation, self.config.hue)(original)
-                # Zero out gradients
-                image_spatial_t = normalize_min_max(image_spatial_t)
-                image_appearance_t = normalize_min_max(image_appearance_t)
+                equiv_loss = self.config.L_mu * transform_loss + self.config.L_cov * precision_loss
+                # report_means = torch.mean(torch.norm(mu, p=1, dim=2), dim=0).cpu().detach().numpy()
+                # report_prec = torch.mean(torch.linalg.norm(L_inv, ord='fro', dim=[2, 3]), dim=0).cpu().detach().numpy()
 
-                rec, ssp, asp, mu = model(original, image_spatial_t, image_appearance_t, coord, vector)
+            # mean_dict = {f"part_{pc}-mu-norm": l.item() for pc, l in enumerate(report_means)}
+            # prec_dict = {f"part_{pc}-prec-norm": c.item() for pc, c in enumerate(report_prec)}
 
-                loss, rec_loss, equiv_loss = total_loss(original, rec, ssp, asp, mu, coord, vector,
-                                                        self.device, self.config.L_mu, self.config.L_cov,
-                                                        self.config.scal, self.config.l_2_scal, self.config.l_2_threshold)
+            out_dict = {"loss": loss.item(), "rec_loss": rec_loss.item(), "equiv_loss": equiv_loss.item(),
+                        "transform_loss": transform_loss.item(), "precision_loss": precision_loss.item()}
 
-            metric_ssim = ssim(original,rec)
-            metric_psnr = psnr(original,rec)
+            # out_dict.update(mean_dict)
+            # out_dict.update(prec_dict)
+
+            metric_ssim = ssim(original,rec_same_id)
+            metric_psnr = psnr(original,rec_same_id)
             # fixme keypoint metrics
+            out_dict.update({"ssim": float(metric_ssim), "psnr": float(metric_psnr)})
 
-            return {"loss": loss.item(), "rec_loss": rec_loss.item(), "equiv_loss": equiv_loss.item(), "ssim": float(metric_ssim), "psnr": float(metric_psnr)}
+            return out_dict
 
 
 
@@ -326,20 +309,11 @@ class PartBased(LoggingParent):
             with torch.no_grad():
                 original = eval_batch["images"].cuda(self.device)
 
-                tps_param_dic = tps_parameters(original.shape[0], self.config.scal, self.config.tps_scal, self.config.rot_scal,
-                                               self.config.off_scal, self.config.scal_var, self.config.augm_scal)
-                coord, vector = make_input_tps_param(tps_param_dic)
-                coord, vector = coord.cuda(self.device), vector.cuda(self.device)
-                image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
-                                                     original.shape[3], self.device)
-                image_appearance_t = K.ColorJitter(self.config.brightness, self.config.contrast, self.config.saturation, self.config.hue)(original)
-                # Zero out gradients
-                image_spatial_t = normalize_min_max(image_spatial_t)
-                image_appearance_t = normalize_min_max(image_appearance_t)
+                img_rec, rec_same_id, loss, rec_loss, transform_loss, precision_loss, mu, L_inv, part_maps_raw = model(original)
 
-                rec, ssp, asp, mu = model(original, image_spatial_t, image_appearance_t, coord, vector)
-
-            img_grid = make_img_grid(image_appearance_t, image_spatial_t, rec, original,mus=mu, n_logged=6)
+            image_appearance_t = img_rec[original.shape[0]:]
+            image_spatial_t = img_rec[:original.shape[0]]
+            img_grid = make_img_grid(image_appearance_t, image_spatial_t, rec_same_id, original,mus=mu, n_logged=6)
 
 
             wandb.log({"Evaluation image logs": wandb.Image(img_grid, caption=f"Image logs on test set.")})
@@ -378,21 +352,11 @@ class PartBased(LoggingParent):
             original = batch["images"].cuda(self.device)
 
             with torch.no_grad():
+                img_rec, rec_same_id, loss, rec_loss, transform_loss, precision_loss, mu, L_inv, part_maps_raw = model(original)
+                image_appearance_t = img_rec[original.shape[0]]
+                image_spatial_t = img_rec[original.shape[0]]
 
-                tps_param_dic = tps_parameters(original.shape[0], self.config.scal, self.config.tps_scal, self.config.rot_scal,
-                                               self.config.off_scal, self.config.scal_var, self.config.augm_scal)
-                coord, vector = make_input_tps_param(tps_param_dic)
-                coord, vector = coord.cuda(self.device), vector.cuda(self.device)
-                image_spatial_t, _ = ThinPlateSpline(original, coord, vector,
-                                                     original.shape[3], self.device)
-                image_appearance_t = K.ColorJitter(self.config.brightness, self.config.contrast, self.config.saturation, self.config.hue)(original).cuda(self.device)
-
-                image_spatial_t = normalize_min_max(image_spatial_t)
-                image_appearance_t = normalize_min_max(image_appearance_t)
-
-                rec, ssp, asp, mu = model(original, image_spatial_t, image_appearance_t, coord, vector)
-
-            img_grid = make_img_grid(image_appearance_t,image_spatial_t,rec,original, mus=mu, n_logged=6)
+            img_grid = make_img_grid(image_appearance_t,image_spatial_t,rec_same_id,original, mus=mu, n_logged=6)
 
             wandb.log({"Training image logs": wandb.Image(img_grid, caption=f"Image logs after {it} train steps.")})
 
@@ -401,11 +365,15 @@ class PartBased(LoggingParent):
         Average(output_transform=lambda x : x["loss"]).attach(trainer, "loss-epoch_avg")
         Average(output_transform=lambda x: x["rec_loss"]).attach(trainer, "rec_loss-epoch_avg")
         Average(output_transform=lambda x: x["equiv_loss"]).attach(trainer, "equiv_loss-epoch_avg")
+        Average(output_transform=lambda x: x["transform_loss"]).attach(trainer, "transform_loss-epoch_avg")
+        Average(output_transform=lambda x: x["precision_loss"]).attach(trainer, "precision_loss-epoch_avg")
 
         # metrics during evaluation
         Average(output_transform=lambda x : x["loss"]).attach(evaluator, "loss-eval")
         Average(output_transform=lambda x: x["rec_loss"]).attach(evaluator, "rec_loss-eval")
         Average(output_transform=lambda x: x["equiv_loss"]).attach(evaluator, "equiv_loss-eval")
+        Average(output_transform=lambda x: x["transform_loss"]).attach(evaluator, "transform_loss-eval")
+        Average(output_transform=lambda x: x["precision_loss"]).attach(evaluator, "precision_loss-eval")
         Average(output_transform=lambda x: x["psnr"]).attach(evaluator, "psnr-eval")
         Average(output_transform=lambda x: x["ssim"]).attach(evaluator, "ssim-eval")
 
