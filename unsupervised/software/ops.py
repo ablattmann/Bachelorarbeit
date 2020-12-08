@@ -190,7 +190,7 @@ def feat_mu_to_enc(features, mu, L_inv, device, covariance, reconstr_dim, static
             else:
                 encoding_list.append(part_heat_circ)
 
-    return encoding_listrecon
+    return encoding_list
 
 
 def count_parameters(model):
@@ -223,7 +223,7 @@ def augm(t, arg):
     t = K.ColorJitter(arg.brightness, arg.contrast, arg.saturation, arg.hue)(t)
     random_tensor = 1. - arg.p_flip + torch.rand(size=[1], dtype=t.dtype)
     binary_tensor = torch.floor(random_tensor)
-    random_tensor, binary_tensor = random_tensor.to(arg.device), binary_tensor.to(arg.device)
+    random_tensor, binary_tensor = random_tensor.to(arg.gpu), binary_tensor.to(arg.gpu)
 
     augmented = binary_tensor * t + (1 - binary_tensor) * (1 - t)
     return augmented

@@ -294,8 +294,8 @@ class PartBased(LoggingParent):
             # out_dict.update(mean_dict)
             # out_dict.update(prec_dict)
 
-            metric_ssim = ssim(original,rec_same_id)
-            metric_psnr = psnr(original,rec_same_id)
+            metric_ssim = ssim(original,rec_same_id[:original.shape[0]])
+            metric_psnr = psnr(original,rec_same_id[:original.shape[0]])
             # fixme keypoint metrics
             out_dict.update({"ssim": float(metric_ssim), "psnr": float(metric_psnr)})
 
@@ -313,6 +313,8 @@ class PartBased(LoggingParent):
 
             image_appearance_t = img_rec[original.shape[0]:]
             image_spatial_t = img_rec[:original.shape[0]]
+            mu = mu[original.shape[0]:]
+            rec_same_id = rec_same_id[:original.shape[0]]
             img_grid = make_img_grid(image_appearance_t, image_spatial_t, rec_same_id, original,mus=mu, n_logged=6)
 
 
@@ -353,8 +355,10 @@ class PartBased(LoggingParent):
 
             with torch.no_grad():
                 img_rec, rec_same_id, loss, rec_loss, transform_loss, precision_loss, mu, L_inv, part_maps_raw = model(original)
-                image_appearance_t = img_rec[original.shape[0]]
-                image_spatial_t = img_rec[original.shape[0]]
+                image_appearance_t = img_rec[original.shape[0]:]
+                image_spatial_t = img_rec[:original.shape[0]]
+                mu = mu[original.shape[0]:]
+                rec_same_id = rec_same_id[:original.shape[0]]
 
             img_grid = make_img_grid(image_appearance_t,image_spatial_t,rec_same_id,original, mus=mu, n_logged=6)
 
