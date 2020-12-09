@@ -229,13 +229,13 @@ def augm(t, arg):
     return augmented
 
 
-def prepare_pairs(t_images, arg):
-    if arg.mode == 'train':
+def prepare_pairs(t_images, train, static, config):
+    if train:
         bn, n_c, w, h = t_images.shape
-        t_c_1_images = augm(t_images, arg)
-        t_c_2_images = augm(t_images, arg)
+        t_c_1_images = augm(t_images, config)
+        t_c_2_images = augm(t_images, config)
 
-        if arg.static:
+        if static:
             t_c_1_images = torch.cat([t_c_1_images[:bn // 2].unsqueeze(1), t_c_1_images[bn // 2:].unsqueeze(1)], dim=1)
             t_c_2_images = torch.cat([t_c_2_images[:bn // 2].unsqueeze(1), t_c_2_images[bn // 2:].unsqueeze(1)], dim=1)
         else:
@@ -245,7 +245,7 @@ def prepare_pairs(t_images, arg):
         a, b = t_c_1_images[:, 0].unsqueeze(1), t_c_1_images[:, 1].unsqueeze(1)
         c, d = t_c_2_images[:, 0].unsqueeze(1), t_c_2_images[:, 1].unsqueeze(1)
 
-        if arg.static:
+        if static:
             t_input_images = torch.cat([a, d], dim=0).reshape(bn, n_c, w, h)
             t_reconstr_images = torch.cat([c, b], dim=0).reshape(bn, n_c, w, h)
         else:
@@ -253,11 +253,11 @@ def prepare_pairs(t_images, arg):
             t_reconstr_images = torch.cat([c, b], dim=1).reshape(bn, n_c, w, h)
 
         t_input_images = torch.clamp(t_input_images, min=0., max=1.)
-        t_reconstr_images = F.interpolate(torch.clamp(t_reconstr_images, min=0., max=1.), size=arg.reconstr_dim)
+        t_reconstr_images = F.interpolate(torch.clamp(t_reconstr_images, min=0., max=1.), size=config.reconstr_dim)
 
     else:
         t_input_images = torch.clamp(t_images, min=0., max=1.)
-        t_reconstr_images = F.interpolate(torch.clamp(t_images, min=0., max=1.), size=arg.reconstr_dim)
+        t_reconstr_images = F.interpolate(torch.clamp(t_images, min=0., max=1.), size=config.reconstr_dim)
 
     return t_input_images, t_reconstr_images
 

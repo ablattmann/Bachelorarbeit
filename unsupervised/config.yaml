@@ -1,39 +1,44 @@
 # parameters for training/testing the network
-name: test
+name: test-h36m
 base_dir: /export/data/ablattma/vda/ap1-5/ # path to the output dir, where logs, ckpts, and hyperparameters will be stored. This will be overwritten with --output command line parameter
 seed: 42 # random seed
 
 # data
-dataset: DeepFashion # should be in [DeepFashion, CUB, ALFW, Human36M, CelebA]
-datapath: /export/scratch/compvis/datasets/deepfashion_inshop/Img/img/ # path to the data. This will be overwritten with --output command line parameter
+dataset: Human36M # should be in [DeepFashion, CUB, ALFW, Human36M, CelebA]
+datapath: /export/scratch/compvis/datasets/human3M_lorenz19 # path to the data. This will be overwritten with --output command line parameter
 n_workers: 20 # number of workers for the dataloader
 
 # options
-covariance: False # whether to consider covariances of the part shapes for the equivariance loss
+covariance: True # whether to consider covariances of the part shapes for the equivariance loss
 epochs: 100 # epochs to train the model
 reconstr_dim: 256 # spatial image dimension of input and output
 vgg_loss: False # whether to use perceptual loss for image reconstruction
 
 # other hyperparameters
-bn: 4 # batch size
-n_parts: 16 # number of parts
+bn: 14 # batch sizen
+n_parts: 16
 n_features: 64 # feature map depth
 n_c: 3 # number of image channels
 residual_dim: 256 # channels in part-appearance representations for each body parts
 depth_s: 4
 depth_a: 1
 
-# loss
-lr: 0.0005 # learning rate
-weight_decay: 0.0005 # weight decay parameter
+
+
+# training
+lr: 0.001 # learning rate
+weight_decay: 0.0001 # weight decay parameter
 L_mu: 5 # weighting factor for the means in the equivariance loss
-L_cov: 1 # weighting factor for the covariances in the equivariance loss
+L_cov: .1 # weighting factor for the covariances in the equivariance loss
+p_dropout: 0
+
 
 # tps parameters
+fold_img_with_shape: True
 l_2_scal: 0.1
 l_2_threshold: 0.2
 L_inv_scal: 0.8
-scal: 0.8
+scal: 0.6
 tps_scal: 0.05
 rot_scal: 0.1
 off_scal: 0.15
@@ -42,14 +47,14 @@ augm_scal: 1.
 
 # color transform parameters
 contrast: 0.5
-brightness: 0.1
+brightness: 0.3
 saturation: 0.1
 hue: 0.3
 p_flip: 0.
 static: True
 
 # logging
-log_intervall: 10
+log_intervall: 300
 metric_at_epochs: 1
-test_img_intervall: 10
+test_img_intervall: 500
 ckpt_intervall: 1000

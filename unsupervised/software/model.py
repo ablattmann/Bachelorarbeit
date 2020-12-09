@@ -73,19 +73,23 @@ class LandmarkModel(nn.Module):
         self.scal_var = arg.scal_var
         self.augm_scal = arg.augm_scal
         self.fold_with_shape = arg.fold_with_shape
-        self.E_sigma = E(self.depth_s, self.n_parts, residual_dim=self.residual_dim, sigma=True)
-        self.E_alpha = E(self.depth_a, self.n_features, residual_dim=self.residual_dim, sigma=False)
+        self.p_dropout = arg.p_dropout
+        self.E_sigma = E(self.depth_s, self.n_parts, residual_dim=self.residual_dim, p_dropout=self.p_dropout, sigma=True)
+        self.E_alpha = E(self.depth_a, self.n_features, residual_dim=self.residual_dim, p_dropout=self.p_dropout, sigma=False)
         self.decoder = Decoder(self.n_parts, self.n_features, self.reconstr_dim)
 
     def forward(self, x):
         # tps
+        bs = x.shape[0]
+        bs_doubled = 2* bs
+
         image_orig = x.repeat(2, 1, 1, 1)
-        tps_param_dic = tps_parameters(image_orig.shape[0], self.scal, self.tps_scal, self.rot_scal, self.off_scal,
+        tps_param_dic = tps_parameters(bs_doubled, self.scal, self.tps_scal, self.rot_scal, self.off_scal,
                                        self.scal_var, self.augm_scal)
         coord, vector = make_input_tps_param(tps_param_dic)
         coord, vector = coord.to(self.device), vector.to(self.device)
         t_images, t_mesh = ThinPlateSpline(image_orig, coord, vector, self.reconstr_dim, device=self.device)
-        image_in, image_rec = prepare_pairs(t_images, self.arg)
+        image_in, image_rec = prepare_pairs(t_images, self.training, self.arg.static, self.arg)
         transform_mesh = F.interpolate(t_mesh, size=64)
         volume_mesh = AbsDetJacobian(transform_mesh, self.device)
 
@@ -107,12 +111,21 @@ class LandmarkModel(nn.Module):
         encoding = feat_mu_to_enc(features, mu, L_inv, self.device, self.covariance, self.reconstr_dim)
         reconstruct_same_id = self.decoder(encoding)
 
-        total_loss, rec_loss, transform_loss, precision_loss = loss_fn(x.shape[0], mu, L_inv, mu_t, stddev_t,
+        total_loss, rec_loss, transform_loss, precision_loss = loss_fn(bs, mu, L_inv, mu_t, stddev_t,
                                                                        reconstruct_same_id, image_rec, self.fold_with_shape,
                                                                        self.l_2_scal, self.l_2_threshold, self.L_mu, self.L_cov,
                                                                        self.device)
 
         return image_rec, reconstruct_same_id, total_loss, rec_loss, transform_loss, precision_loss, mu, L_inv, part_maps_raw
+
+    def detect_parts(self,x):
+        part_maps_raw, part_maps_norm, sum_part_maps = self.E_sigma(x)
+        mu, L_inv = get_mu_and_prec(part_maps_norm, self.device, self.L_inv_scal)
+
+        return part_maps_raw, mu
+
+
+
 
 
 
